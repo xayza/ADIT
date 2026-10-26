@@ -42,6 +42,7 @@
       <img id="previewImg" style="display:none;max-width:100%;border-radius:10px" alt="">
     </div>
     <div id="transport">
+      <button id="btnQuickPreview" class="primary" style="width:100%">Xem trước nhanh (render bản nháp 540×960 rồi phát ở đây)</button>
       <label>Vị trí tách (giây, theo timeline)</label>
       <input type="number" id="splitAt" value="0" min="0" step="0.1">
       <button id="btnSplit">Tách clip đang chọn tại vị trí này</button>
@@ -167,6 +168,19 @@
     <input type="number" id="musicVolume" value="0.15" min="0" max="0.3" step="0.05">
     <button id="btnSetMusic" style="margin-top:8px;width:100%">Đặt nhạc nền</button>
     <button id="btnClearMusic" style="margin-top:8px;width:100%">Xóa nhạc nền</button>
+    <hr>
+    <h2>Chỉnh sửa toàn cục (thật, không phải AI)</h2>
+    <p style="font-size:12px;color:var(--muted)">Các nút này áp dụng bằng bộ lọc FFmpeg thật khi xuất video (bản nháp hoặc bản chính), và có thể bỏ bằng nút Đặt lại. Chúng không dùng model AI.</p>
+    <label>Làm màu đẹp hơn (eq: tăng nhẹ tương phản, bão hòa, sáng)</label>
+    <select id="globalColor">
+      <option value="none">Không đổi màu</option>
+      <option value="better">Làm màu đẹp hơn</option>
+    </select>
+    <label><input type="checkbox" id="globalVolumeNorm" style="width:auto"> Âm lượng ổn định (loudnorm: chuẩn hóa độ lớn toàn video)</label>
+    <label><input type="checkbox" id="globalSharpen" style="width:auto"> Video nét hơn (unsharp, không phải AI)</label>
+    <button id="btnApplyGlobal" class="primary" style="margin-top:8px;width:100%">Lưu chỉnh sửa toàn cục</button>
+    <button id="btnResetGlobal" style="margin-top:8px;width:100%">Bỏ mọi chỉnh sửa toàn cục</button>
+    <p style="font-size:12px;color:var(--muted)">Chưa có — cần model AI, giai đoạn sau (không phải nút chạy): Retouch face, Làm giọng rõ hơn bằng AI, Làm video nét hơn bằng AI, Gợi ý thông minh, AI clipper.</p>
   </section>
 </main>
 
@@ -175,7 +189,15 @@
     <h2 style="margin:0">Timeline</h2>
     <span id="durationLabel"></span>
   </div>
-  <p style="color:var(--muted);font-size:13px">Bấm vào một clip để chọn và sửa ở bảng bên phải. Clip video/ảnh/chữ trên cùng một track không được chồng lên nhau; clip nhạc được trộn âm thanh nên có thể chồng lên nhau.</p>
+  <div class="zoomControls">
+    <span>Thu phóng timeline:</span>
+    <button id="btnZoomOut">−</button>
+    <input type="range" id="zoomSlider" min="10" max="200" value="60" step="5" style="width:180px">
+    <button id="btnZoomIn">+</button>
+    <span id="zoomLabel">60px/giây</span>
+    <span id="playheadLabel">Playhead: 00:00.0</span>
+  </div>
+  <p style="color:var(--muted);font-size:13px">Kéo ngang một clip để di chuyển nó trên cùng track (thả chuột mới lưu một lần). Bấm vào thước thời gian để di chuyển playhead; khung xem trước sẽ hiện khung hình đại diện của clip tại vị trí đó (chưa phải bản render timeline). Bấm vào một clip để chọn và sửa ở bảng bên phải. Clip video/ảnh/chữ trên cùng một track không được chồng lên nhau; clip nhạc được trộn âm thanh nên có thể chồng lên nhau.</p>
   <div id="tracks"></div>
 </section>
 

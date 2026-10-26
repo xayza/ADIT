@@ -262,6 +262,20 @@ def render_project(project, media_dir, output_path, width=None, height=None,
             base = out
         final_video = base
 
+        # Project-level global edits (real FFmpeg filters, not AI).
+        # Applied once to the composited frame, not per clip, so the
+        # export stays a single FFmpeg chain.
+        global_edits = project.get("global_edits") or {}
+        video_chain = []
+        if global_edits.get("color") == "better":
+            # eq preset: slight contrast / saturation / brightness lift.
+            video_chain.append("eq=contrast=1.08:brightness=0.03:saturation=1.12")
+        if global_edits.get("sharpen"):
+            video_chain.append("unsharp=5:5:0.6:5:5:0.0")
+        if video_chain:
+            filters.append(f"[{final_video}]{','.join(video_chain)}[globalv]")
+            final_video = "globalv"
+
         # Audio.
         audio_labels = []
         for clip in clips:
@@ -309,6 +323,12 @@ def render_project(project, media_dir, output_path, width=None, height=None,
             filters.append(f"[{idx}:a]atrim=0:{total:.3f},asetpts=PTS-STARTPTS[finala]")
             final_audio = "finala"
 
+        # Global loudness normalisation (single-pass loudnorm) on the
+        # final mix only; it never touches the per-clip audio above.
+        if global_edits.get("volume_norm"):
+            filters.append("[finala]loudnorm=I=-16:TP=-1.5:LRA=11[globala]")
+            final_audio = "globala"
+
         cmd = ["ffmpeg", "-y"]
         for argv in inputs:
             cmd.extend(argv)
@@ -328,4 +348,5 @@ def render_project(project, media_dir, output_path, width=None, height=None,
         "width": width,
         "height": height,
         "fps": fps,
+        "global_edits": global_edits,
     }

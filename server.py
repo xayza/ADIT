@@ -182,6 +182,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not target.is_file() or target.parent != MEDIA_DIR.resolve():
                     return self._send_error_json("media not found", 404)
                 return self._serve_file(target)
+            if path.startswith("/api/waveform/"):
+                # Never blocks the timeline: failures return empty peaks
+                # with the reason, so the UI draws the block bare.
+                name = unquote(path[len("/api/waveform/"):])
+                if "/" in name or "\\" in name:
+                    return self._send_error_json("invalid media name", 400)
+                target = (MEDIA_DIR / name).resolve()
+                if not target.is_file() or target.parent != MEDIA_DIR.resolve():
+                    return self._send_error_json("media not found", 404)
+                peaks, cached, error = media_mod.waveform_or_empty(target)
+                return self._send_json({"filename": name, "peaks": peaks,
+                                        "cached": cached, "error": error})
             if path.startswith("/api/thumb/"):
                 name = unquote(path[len("/api/thumb/"):])
                 target = PROJECT_DIR / "thumbs" / name
@@ -230,6 +242,14 @@ class Handler(BaseHTTPRequestHandler):
                 clip = tl.add_clip(PROJECT, body)
                 save()
                 return self._send_json({"clip": clip}, 201)
+            if path == "/api/global-edits":
+                edits = tl.set_global_edits(PROJECT, body)
+                save()
+                return self._send_json({"global_edits": edits})
+            if path == "/api/global-edits/reset":
+                edits = tl.reset_global_edits(PROJECT)
+                save()
+                return self._send_json({"global_edits": edits})
             if path == "/api/music":
                 music = tl.set_background_music(
                     PROJECT, body.get("source"), body.get("volume", 0.15))
@@ -438,7 +458,8 @@ class Handler(BaseHTTPRequestHandler):
             PROJECT["media"].append(entry)
         thumb_dir = PROJECT_DIR / "thumbs"
         thumb = thumb_dir / f"{dest.stem}.jpg"
-        if media_mod.make_thumbnail(dest, thumb, entry["type"]):
+        # Reuse an already-generated thumbnail; only generate on first use.
+        if thumb.is_file() or media_mod.make_thumbnail(dest, thumb, entry["type"]):
             entry["thumbnail"] = thumb.name
         save()
         return self._send_json({"media": entry}, 201)

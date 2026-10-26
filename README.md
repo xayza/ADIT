@@ -30,6 +30,43 @@ hiệu ứng/transition cầu kỳ — phần đó người dùng đã dặn đ�
 - **Lưu/mở dự án:** dự án lưu thành `projects/default/project.json`,
   mở lại là xuất tiếp được từ đúng timeline đó.
 
+## Thao tác mượt kiểu CapCut (mới)
+
+- **Kéo clip trên timeline:** bấm giữ một clip và kéo ngang để đổi
+  vị trí bắt đầu trên cùng track, trong lúc kéo có hiển thị thời gian
+  trực tiếp; chỉ khi thả chuột mới lưu một lần qua API. Kéo vào vị trí
+  chồng clip khác thì server từ chối và clip trở lại chỗ cũ.
+- **Thu phóng timeline:** thanh trượt và nút +/− đổi số pixel/giây
+  (10–200) cho dải timeline mà không tải lại trang.
+- **Bấm thước thời gian để di chuyển playhead:** playhead và mốc
+  thời gian hiện rõ. Khung xem trước lúc này là **xem trước đại diện
+  (proxy), chưa phải bản render timeline**: nếu vị trí đó có clip
+  video/ảnh thì hiện đúng file nguồn của clip đó ở thời gian nguồn
+  tương ứng; nếu là khoảng trống thì hiện khung đen kèm mốc thời gian.
+  Muốn xem đúng timeline đã ghép thì bấm "Xem trước nhanh".
+- **Sửa thuộc tính và xóa clip tại chỗ:** mọi thao tác gọi API JSON và
+  cập nhật giao diện tại chỗ, không tải lại trang.
+- **Sóng âm (waveform):** clip nhạc và clip video có tiếng sẽ hiện sóng
+  âm trong khối timeline. Sóng được tạo một lần bằng FFmpeg (giải mã
+  PCM mono rồi tính đỉnh theo từng khoảng) và lưu cache cạnh file
+  media (`<tên>.waveform.json`), lần sau dùng lại cache nếu file chưa
+  đổi. Nếu tạo sóng thất bại thì khối timeline vẫn hiện bình thường,
+  không có sóng, và không chặn việc chỉnh sửa.
+- **Xem trước nhanh:** nút "Xem trước nhanh" render bản nháp 540×960
+  (preset veryfast) và phát ngay trong trình phát, kèm trạng thái
+  "Đang render bản nháp…". Đường xuất video chính không thay đổi.
+  Ảnh thu nhỏ đã tạo cũng được tái dùng, không tạo lại mỗi lần mở.
+- **Chỉnh sửa toàn cục (thật, không phải AI):** ở bảng bên phải, lưu
+  rồi áp dụng khi xuất video: "Làm màu đẹp hơn" (eq:
+  contrast=1.08, brightness=0.03, saturation=1.12), "Âm lượng ổn định"
+  (loudnorm một lần: I=-16, TP=-1.5, LRA=11 trên bản mix cuối),
+  "Video nét hơn" (unsharp=5:5:0.6:5:5:0.0, không phải AI). Có nút đặt
+  lại về mặc định, và kết quả xuất ghi rõ chỉnh toàn cục nào đã áp.
+  Các tính năng cần model AI như Retouch face, làm giọng rõ hơn bằng
+  AI, làm video nét hơn bằng AI, gợi ý thông minh, AI clipper thì
+  **chưa có** và chỉ được ghi chú là giai đoạn sau, không có nút nào
+  giả vờ chạy chúng.
+
 ## AI — Ollama local miễn phí là mặc định
 
 ADIT **không đóng gói binary Ollama hay model vào repo** (quá nặng).
@@ -118,8 +155,9 @@ không có kho hiệu ứng, không có keyframe, không có masking nhiều l�
 không có transition ngoài hiệu ứng mờ dần, không có đồng bộ cloud,
 không có tài khoản. Clip video/ảnh/chữ trên cùng một track không được
 chồng lên nhau (clip nhạc thì được trộn nên có thể chồng). Chưa có
-xem trước trực tiếp trên timeline: trình phát sẽ phát bản xuất gần
-nhất. Bản này chạy dạng web local, **chưa đóng gói thành app desktop
+render timeline trực tiếp bằng GPU: trình phát phát bản xuất gần nhất,
+còn khi bấm thước thời gian thì chỉ hiện khung hình đại diện của clip
+tại vị trí đó (xem mục "Thao tác mượt" ở trên). Bản này chạy dạng web local, **chưa đóng gói thành app desktop
 (Tauri/Electron)** — đó là việc của giai đoạn sau. Hiệu ứng/transition
 cầu kỳ (xfade, blur/glow/glitch...) đã được người dùng dặn để sau, chưa
 làm trong bản này. Đường API trả phí thật (OpenAI/Anthropic) đã viết xong
@@ -154,7 +192,7 @@ Chạy trên Linux/macOS cũng tương tự, chỉ khác lệnh kích hoạt ven
 ## Chạy test
 
 ```bash
-python -m py_compile timeline.py media.py render.py server.py ai_service.py model_service.py
+python -m py_compile timeline.py media.py render.py server.py ai_service.py model_service.py tests/test_smooth.py
 python -m unittest discover -s tests -v
 ```
 

@@ -43,6 +43,45 @@ _COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _EPS = 1e-6
 
 
+GLOBAL_COLORS = ("none", "better")
+
+
+def default_global_edits():
+    """Project-level global edits (real FFmpeg filters, not AI).
+
+    color="better": a documented eq preset (slight contrast/saturation/
+    brightness). volume_norm: loudnorm on the final mix. sharpen:
+    an unsharp filter. All default to off and are reversible.
+    """
+    return {"color": "none", "volume_norm": False, "sharpen": False}
+
+
+def validate_global_edits(edits):
+    if not isinstance(edits, dict):
+        raise ValueError("global_edits must be an object")
+    if edits.get("color", "none") not in GLOBAL_COLORS:
+        raise ValueError(f"unknown global color preset: {edits.get('color')!r}")
+    for key in ("volume_norm", "sharpen"):
+        if not isinstance(edits.get(key, False), bool):
+            raise ValueError(f"global edit {key} must be true/false")
+    return edits
+
+
+def set_global_edits(project, patch):
+    merged = default_global_edits()
+    merged.update(project.get("global_edits") or {})
+    if patch:
+        merged.update(patch)
+    validate_global_edits(merged)
+    project["global_edits"] = merged
+    return merged
+
+
+def reset_global_edits(project):
+    project["global_edits"] = default_global_edits()
+    return project["global_edits"]
+
+
 def new_project(name="ADIT Project"):
     return {
         "name": name,
@@ -52,6 +91,7 @@ def new_project(name="ADIT Project"):
         "clips": [],
         "media": [],
         "background_music": None,
+        "global_edits": default_global_edits(),
     }
 
 
@@ -260,6 +300,14 @@ def validate_project(project):
     for key in ("clips", "media"):
         if key not in project:
             raise ValueError(f"project is missing {key!r}")
+    # Old projects predate global edits; normalise instead of failing.
+    if not isinstance(project.get("global_edits"), dict):
+        project["global_edits"] = default_global_edits()
+    else:
+        merged = default_global_edits()
+        merged.update(project["global_edits"])
+        validate_global_edits(merged)
+        project["global_edits"] = merged
     seen = set()
     for clip in project["clips"]:
         if clip["id"] in seen:

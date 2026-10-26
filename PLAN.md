@@ -39,6 +39,24 @@ chưa đóng gói desktop.
 - Chưa làm: đóng gói desktop (Tauri/Electron) để thành app cài đặt
   được, thay vì chạy bằng lệnh `python server.py`.
 
+## Thao tác mượt kiểu CapCut (ĐÃ LÀM, sau Giai đoạn 2)
+
+- Kéo clip trên timeline (lưu một lần khi thả chuột, chồng clip thì
+  bị từ chối), thu phóng timeline, bấm thước để di chuyển playhead
+  với xem trước đại diện (proxy: file nguồn của clip tại vị trí đó,
+  hoặc khung đen cho khoảng trống) — chưa phải render timeline trực
+  tiếp bằng GPU.
+- Waveform cho clip nhạc/video có tiếng, tạo một lần bằng FFmpeg và
+  cache cạnh file media; lỗi waveform không chặn timeline.
+- Xem trước nhanh bằng bản nháp 540×960, tái dùng thumbnail đã tạo.
+- Chỉnh sửa toàn cục bằng FFmpeg thật, không phải AI: eq làm màu đẹp
+  hơn, loudnorm ổn định âm lượng, unsharp làm nét hơn; có nút đặt lại.
+  Các tính năng cần model AI (retouch face, giọng rõ hơn bằng AI,
+  video nét hơn bằng AI, gợi ý thông minh, AI clipper) vẫn chưa có
+  và chỉ được ghi chú là giai đoạn sau.
+- Chưa làm: transition/ hiệu ứng cầu kỳ (đã dặn hoãn), đóng gói
+  desktop, render timeline trực tiếp bằng GPU.
+
 ## Giai đoạn sau nữa (chưa chốt)
 
 Template, preset hiệu ứng lưu sẵn, keyframe, transition nâng cao

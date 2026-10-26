@@ -7,6 +7,7 @@ filename; the user's original file is never modified or moved.
 import json
 import re
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -91,6 +92,74 @@ def import_media(src_path, media_dir):
         "width": info["width"],
         "height": info["height"],
     }
+
+
+def waveform_cache_path(media_path):
+    """Cache file next to the media, e.g. song.mp3 -> song.waveform.json."""
+    path = Path(media_path)
+    return path.with_name(path.stem + ".waveform.json")
+
+
+def generate_waveform(media_path, buckets=120):
+    """Return (peaks, cached).
+
+    Peaks are normalised 0..1 max-absolute amplitudes per bucket, computed
+    once from FFmpeg-decoded mono PCM and cached next to the media file.
+    The cache is reused only when the media's mtime and size still match;
+    on any failure an empty peak list is returned (callers must never
+    block the timeline on a waveform) — use ``waveform_or_empty`` for that.
+    """
+    media_path = Path(media_path)
+    cache = waveform_cache_path(media_path)
+    try:
+        stat = media_path.stat()
+        if cache.is_file():
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            if (data.get("mtime") == stat.st_mtime_ns
+                    and data.get("size") == stat.st_size
+                    and isinstance(data.get("peaks"), list)):
+                return [float(p) for p in data["peaks"]], True
+    except Exception:
+        pass
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(media_path),
+         "-ac", "1", "-ar", "8000", "-f", "f32le", "-"],
+        capture_output=True, timeout=120,
+    )
+    if result.returncode != 0 or not result.stdout:
+        # Raised so waveform_or_empty can report the reason; it never
+        # propagates to the timeline UI, which draws a bare block.
+        tail = (result.stderr or b"")[-500:].decode("utf-8", "replace")
+        raise RuntimeError(f"ffmpeg waveform failed: {tail or 'no audio data'}")
+    count = len(result.stdout) // 4
+    samples = struct.unpack(f"<{count}f", result.stdout[:count * 4])
+    if not samples:
+        return [], False
+    peak = max(abs(s) for s in samples) or 1.0
+    per = max(1, (len(samples) + buckets - 1) // buckets)
+    peaks = []
+    for i in range(buckets):
+        chunk = samples[i * per:(i + 1) * per]
+        peaks.append(round(max((abs(s) for s in chunk), default=0.0) / peak, 4))
+    try:
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_text(json.dumps(
+            {"peaks": peaks, "mtime": media_path.stat().st_mtime_ns,
+             "size": media_path.stat().st_size}, ensure_ascii=False),
+            encoding="utf-8")
+        tmp.replace(cache)
+    except Exception:
+        pass  # a missing cache only costs a regeneration next time
+    return peaks, False
+
+
+def waveform_or_empty(media_path, buckets=120):
+    """Never-raising wrapper: ([peaks], cached, error-or-None)."""
+    try:
+        peaks, cached = generate_waveform(media_path, buckets=buckets)
+        return peaks, cached, None
+    except Exception as exc:  # ffmpeg missing, unreadable file, ...
+        return [], False, str(exc)
 
 
 def make_thumbnail(media_path, thumb_path, media_type):
