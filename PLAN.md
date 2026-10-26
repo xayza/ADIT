@@ -79,6 +79,26 @@ chưa đóng gói desktop.
   → trình duyệt mở → editor tải được → dừng bằng cách đóng cửa sổ.
 - Chưa làm: đóng gói Tauri/Electron (lựa chọn riêng ở giai đoạn sau).
 
+## Tính năng cốt lõi mới (ĐÃ LÀM, sau phần chạy như app)
+
+- Hoàn tác / Làm lại cho thao tác thủ công, riêng với hoàn tác của
+  AI: ngăn xếp tối đa 50 mục, lưu trong bộ nhớ và file
+  `<dự án>/manual_history.json`; thao tác mới sau khi hoàn tác xóa
+  ngăn xếp làm lại; thao tác thất bại không đẩy gì và không đổi
+  timeline.
+- Kéo clip sang track khác (track đích sáng lên khi kéo, vẫn kiểm
+  tra chồng clip ở track đích), tách tại playhead (nút + phím S,
+  playhead phải nằm trong clip), sao chép clip (ngay sau gốc nếu còn
+  chỗ, nếu không ở cuối track, nếu không được thì báo lỗi).
+- Nhiều dự án + đổi tên (tên chỉ chữ/số/gạch ngang/gạch dưới, không
+  ghi đè dự án đã có; server không phục vụ file ngoài projects/).
+- Mờ âm thanh từng clip (fade_in/out 0–5s qua FFmpeg `afade`, ghi
+  trong kết quả xuất), preset chữ (Tiêu đề / Phụ đề / Chú thích dưới
+  / Nhãn trên, chỉ là giá trị khởi đầu), tự động lưu ngay sau mọi
+  thao tác thủ công (qua hàm chung `_apply_manual`).
+- Chưa làm (vẫn hoãn theo dặn của người dùng): transition/hiệu ứng
+  cầu kỳ (xfade, blur/glow/glitch...), AI global edits.
+
 ## Giai đoạn sau nữa (chưa chốt)
 
 Template, preset hiệu ứng lưu sẵn, keyframe, transition nâng cao

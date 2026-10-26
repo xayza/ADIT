@@ -292,6 +292,15 @@ def render_project(project, media_dir, output_path, width=None, height=None,
                      f"end={clip['trim_in'] + needed:.3f},asetpts=PTS-STARTPTS")
             if clip["speed"] != 1.0:
                 chain += f",atempo={clip['speed']}"
+            # Per-clip audio fades, in timeline time (after atempo, so
+            # the output duration here is the clip's timeline duration).
+            fade_in = float(clip.get("fade_in_seconds", 0.0) or 0.0)
+            fade_out = float(clip.get("fade_out_seconds", 0.0) or 0.0)
+            if fade_in > 0:
+                chain += f",afade=t=in:st=0:d={fade_in:.3f}"
+            if fade_out > 0:
+                chain += (f",afade=t=out:st={clip['duration'] - fade_out:.3f}"
+                          f":d={fade_out:.3f}")
             chain += f",volume={clip['volume']}"
             chain += f",adelay={int(round(clip['start'] * 1000))}|{int(round(clip['start'] * 1000))}"
             chain += ",apad"
@@ -349,4 +358,12 @@ def render_project(project, media_dir, output_path, width=None, height=None,
         "height": height,
         "fps": fps,
         "global_edits": global_edits,
+        "audio_fades": [
+            {"clip_id": c["id"],
+             "fade_in_seconds": float(c.get("fade_in_seconds", 0.0) or 0.0),
+             "fade_out_seconds": float(c.get("fade_out_seconds", 0.0) or 0.0)}
+            for c in clips
+            if float(c.get("fade_in_seconds", 0.0) or 0.0) > 0
+            or float(c.get("fade_out_seconds", 0.0) or 0.0) > 0
+        ],
     }

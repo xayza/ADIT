@@ -29,6 +29,44 @@ async function api(path, method, body) {
   return data;
 }
 
+const TEXT_PRESETS = {
+  title: { font_size: 96, color: "#FFFFFF", position: "center" },
+  subtitle: { font_size: 48, color: "#FFFFFF", position: "bottom" },
+  caption: { font_size: 40, color: "#FFFF00", position: "bottom" },
+  toplabel: { font_size: 56, color: "#FFFFFF", position: "top" },
+};
+
+function applyTextPreset(name, target) {
+  const preset = TEXT_PRESETS[name];
+  if (!preset) return;
+  if (target === "add") {
+    $("textFontSize").value = preset.font_size;
+    $("textColor").value = preset.color;
+    $("textPosition").value = preset.position;
+  } else if (target === "props") {
+    $("propFontSize").value = preset.font_size;
+    $("propColor").value = preset.color;
+    $("propPosition").value = preset.position;
+  }
+  status(`Đã áp preset chữ (cỡ ${preset.font_size}, màu ${preset.color}, vị trí ${preset.position}) — vẫn sửa được trước khi bấm Áp dụng.`);
+}
+
+function renderProjects(data) {
+  const select = $("projectSelect");
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = "";
+  (data.projects || []).forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name + (name === data.active_project ? " (đang mở)" : "");
+    select.appendChild(opt);
+  });
+  select.value = data.active_project || current;
+  if ($("btnUndo")) $("btnUndo").disabled = !data.can_undo;
+  if ($("btnRedo")) $("btnRedo").disabled = !data.can_redo;
+}
+
 async function refresh() {
   const data = await api("/api/project", "GET");
   project = data.project;
@@ -37,6 +75,7 @@ async function refresh() {
   renderTimeline(data.duration);
   renderProps();
   renderGlobalEdits();
+  renderProjects(data);
 }
 
 function renderMedia() {
@@ -173,6 +212,8 @@ function renderTimeline(duration) {
   tracksEl.innerHTML = "";
   const tracks = [...new Set((project.clips || []).map((c) => c.track))].sort((a, b) => a - b);
   if (!tracks.length) tracks.push(0);
+  // An empty next track row, so a clip can be dragged onto a new track.
+  else if (!tracks.includes(Math.max(...tracks) + 1)) tracks.push(Math.max(...tracks) + 1);
   const total = timelineEnd();
   const inner = document.createElement("div");
   inner.className = "timelineInner";
@@ -198,7 +239,9 @@ function renderTimeline(duration) {
   tracks.forEach((track) => {
     const trackEl = document.createElement("div");
     trackEl.className = "track";
-    trackEl.innerHTML = `<div class="trackLabel">Track ${track}</div>`;
+    trackEl.dataset.track = track;
+    const hasClips = (project.clips || []).some((c) => c.track === track);
+    trackEl.innerHTML = `<div class="trackLabel">Track ${track}${hasClips ? "" : " (trống)"}</div>`;
     (project.clips || []).filter((c) => c.track === track).forEach((c) => {
       const block = document.createElement("div");
       block.className = `clipBlock ${c.type}` + (c.id === selectedId ? " selected" : "");
@@ -215,21 +258,34 @@ function renderTimeline(duration) {
       };
       block.addEventListener("mousedown", (e) => {
         if (e.button !== 0) return;
-        dragState = { id: c.id, startX: e.clientX, origStart: c.start, track: c.track, moved: false };
+        dragState = { id: c.id, startX: e.clientX, origStart: c.start, track: c.track, targetTrack: c.track, moved: false };
         const onMove = (ev) => {
           if (!dragState) return;
           const dx = ev.clientX - dragState.startX;
-          if (Math.abs(dx) < 4) return;
+          // Cross-track: the track row under the mouse is the target.
+          let targetTrack = dragState.track;
+          document.querySelectorAll(".track").forEach((row) => {
+            const rect = row.getBoundingClientRect();
+            if (ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
+              targetTrack = parseInt(row.dataset.track, 10);
+              row.classList.add("targetTrack");
+            } else {
+              row.classList.remove("targetTrack");
+            }
+          });
+          dragState.targetTrack = targetTrack;
+          if (Math.abs(dx) < 4 && targetTrack === dragState.track) return;
           dragState.moved = true;
           const newStart = Math.max(0, Math.round((dragState.origStart + dx / zoomPps) * 10) / 10);
           dragState.newStart = newStart;
           block.style.left = `${newStart * zoomPps}px`;
           block.classList.add("dragging");
-          status(`Đang kéo clip tới ${fmtTime(newStart)} — thả chuột để lưu.`);
+          status(`Đang kéo clip tới track ${targetTrack} tại ${fmtTime(newStart)} — thả chuột để lưu.`);
         };
         const onUp = async () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          document.querySelectorAll(".track").forEach((row) => row.classList.remove("targetTrack"));
           if (!dragState) return;
           const state = dragState;
           dragState = null;
@@ -237,8 +293,8 @@ function renderTimeline(duration) {
           if (!state.moved) return;
           suppressClick = true; // the click after drag must not re-select/re-render
           try {
-            await api(`/api/clips/${state.id}/move`, "POST", { track: state.track, start: state.newStart });
-            status(`Đã di chuyển clip tới ${fmtTime(state.newStart)}.`);
+            await api(`/api/clips/${state.id}/move`, "POST", { track: state.targetTrack, start: state.newStart });
+            status(`Đã di chuyển clip tới track ${state.targetTrack} tại ${fmtTime(state.newStart)}.`);
             await refresh();
           } catch (err) {
             status(err.message); // overlap etc.: server rejected, revert by re-render
@@ -281,6 +337,8 @@ function renderProps() {
   $("propVolume").value = clip.volume;
   $("propMuted").checked = clip.muted;
   $("propEffect").value = clip.effect;
+  $("propFadeIn").value = clip.fade_in_seconds || 0;
+  $("propFadeOut").value = clip.fade_out_seconds || 0;
   $("textProps").style.display = clip.type === "text" ? "block" : "none";
   $("propText").value = clip.text || "";
   $("propFontSize").value = clip.font_size || 48;
@@ -308,7 +366,7 @@ $("btnAddText").addEventListener("click", async () => {
   try {
     const text = $("textContent").value.trim();
     if (!text) { status("Nhập nội dung chữ trước."); return; }
-    await api("/api/clips", "POST", { type: "text", source: "", track: 1, start: 0, duration: parseFloat($("textDuration").value) || 3, text, font_size: 48, color: "#FFFFFF", position: "center", effect: "none" });
+    await api("/api/clips", "POST", { type: "text", source: "", track: 1, start: 0, duration: parseFloat($("textDuration").value) || 3, text, font_size: parseInt($("textFontSize").value) || 48, color: $("textColor").value || "#FFFFFF", position: $("textPosition").value || "center", effect: "none" });
     status("Đã thêm chữ vào timeline (track 1). Sửa vị trí/thời gian ở bảng thuộc tính.");
     await refresh();
   } catch (e) { status(e.message); }
@@ -323,12 +381,35 @@ $("btnApplyProps").addEventListener("click", async () => {
       duration: parseFloat($("propDuration").value), trim_in: parseFloat($("propTrimIn").value),
       speed: parseFloat($("propSpeed").value), volume: parseFloat($("propVolume").value),
       muted: $("propMuted").checked, effect: $("propEffect").value,
+      fade_in_seconds: parseFloat($("propFadeIn").value) || 0,
+      fade_out_seconds: parseFloat($("propFadeOut").value) || 0,
       text: $("propText").value, font_size: parseInt($("propFontSize").value),
       color: $("propColor").value, position: $("propPosition").value,
     });
     status("Đã áp dụng thuộc tính.");
     await refresh();
   } catch (e) { status(e.message); }
+});
+
+$("btnCopyClip").addEventListener("click", async () => {
+  const clip = selectedClip();
+  if (!clip) return;
+  try {
+    const data = await api(`/api/clips/${clip.id}/copy`, "POST", {});
+    selectedId = data.clip.id;
+    status(`Đã sao chép clip thành clip mới tại ${fmtTime(data.clip.start)} trên track ${data.clip.track}.`);
+    await refresh();
+  } catch (e) { status(e.message); }
+});
+
+document.querySelectorAll(".textPresetBtn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    // Buttons in the Add-text panel set the new-text defaults; buttons
+    // in the props panel set the selected clip's fields (still needs
+    // "Áp dụng" to save, so presets stay editable starting values).
+    const inProps = btn.closest("#propsForm");
+    applyTextPreset(btn.dataset.preset, inProps ? "props" : "add");
+  });
 });
 
 $("btnDeleteClip").addEventListener("click", async () => {
@@ -345,6 +426,51 @@ $("btnSplit").addEventListener("click", async () => {
     await api(`/api/clips/${clip.id}/split`, "POST", { at: parseFloat($("splitAt").value) });
     status("Đã tách clip.");
     await refresh();
+  } catch (e) { status(e.message); }
+});
+
+async function splitAtPlayhead() {
+  try {
+    const data = await api("/api/timeline/split-at-playhead", "POST", { at: playheadTime, selected_clip_id: selectedId });
+    status(`Đã tách clip tại playhead ${fmtTime(playheadTime)} thành 2 phần.`);
+    await refresh();
+  } catch (e) { status(e.message); }
+}
+$("btnSplitPlayhead").addEventListener("click", splitAtPlayhead);
+// Keyboard shortcut: S splits at the playhead, but never while typing.
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.key === "s" || e.key === "S") { e.preventDefault(); splitAtPlayhead(); }
+});
+
+$("btnUndo").addEventListener("click", async () => {
+  try { await api("/api/history/undo", "POST", {}); status("Đã hoàn tác thao tác thủ công gần nhất."); await refresh(); }
+  catch (e) { status(e.message); }
+});
+$("btnRedo").addEventListener("click", async () => {
+  try { await api("/api/history/redo", "POST", {}); status("Đã làm lại thao tác vừa hoàn tác."); await refresh(); }
+  catch (e) { status(e.message); }
+});
+
+$("btnSwitchProject").addEventListener("click", async () => {
+  const name = $("projectSelect").value;
+  if (!name) return;
+  try { await api("/api/projects/switch", "POST", { name }); selectedId = null; status(`Đã chuyển sang dự án ${name}.`); await refresh(); }
+  catch (e) { status(e.message); }
+});
+$("btnCreateProject").addEventListener("click", async () => {
+  const name = $("newProjectName").value.trim();
+  if (!name) { status("Nhập tên dự án mới trước."); return; }
+  try { await api("/api/projects", "POST", { name }); selectedId = null; $("newProjectName").value = ""; status(`Đã tạo và chuyển sang dự án ${name}.`); await refresh(); }
+  catch (e) { status(e.message); }
+});
+$("btnRenameProject").addEventListener("click", async () => {
+  const newName = $("renameProjectName").value.trim();
+  if (!newName) { status("Nhập tên mới cho dự án trước."); return; }
+  try {
+    const data = await api("/api/projects/rename", "POST", { old: $("projectSelect").value, new_name: newName });
+    selectedId = null; $("renameProjectName").value = ""; status(`Đã đổi tên dự án thành ${data.new}.`); await refresh();
   } catch (e) { status(e.message); }
 });
 

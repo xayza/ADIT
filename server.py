@@ -44,11 +44,166 @@ import media as media_mod
 import render as render_mod
 import timeline as tl
 
-PROJECT_DIR = ROOT / "projects" / "default"
+PROJECTS_ROOT = ROOT / "projects"
+ACTIVE_PROJECT_NAME = "default"
+PROJECT_DIR = PROJECTS_ROOT / "default"
 MEDIA_DIR = PROJECT_DIR / "media"
 OUTPUT_DIR = PROJECT_DIR / "output"
 PROJECT_FILE = PROJECT_DIR / "project.json"
 STATIC_DIR = ROOT / "static"
+
+# Manual undo/redo (separate from the AI snapshot in project.json.bak):
+# in-memory stacks of full project snapshots, persisted to
+# <project>/manual_history.json (capped at 50 entries). AI apply/undo
+# never touches these stacks, and manual undo/redo never touches the
+# AI snapshot — the two undo systems stay independent.
+MANUAL_UNDO = []
+MANUAL_REDO = []
+_MANUAL_HISTORY_FILE = "manual_history.json"
+_MANUAL_MAX = 50
+_PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def validate_project_name(name):
+    if not isinstance(name, str) or not _PROJECT_NAME_RE.match(name):
+        raise ValueError(
+            "Project name must be 1-64 characters: letters, digits, "
+            "dash or underscore only (no path separators).")
+    return name
+
+
+def project_dir_for(name):
+    return PROJECTS_ROOT / validate_project_name(name)
+
+
+def list_projects():
+    PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+    return sorted(p.name for p in PROJECTS_ROOT.iterdir() if p.is_dir())
+
+
+def _set_active_dirs(name):
+    global ACTIVE_PROJECT_NAME, PROJECT_DIR, MEDIA_DIR, OUTPUT_DIR, PROJECT_FILE
+    validate_project_name(name)
+    ACTIVE_PROJECT_NAME = name
+    PROJECT_DIR = PROJECTS_ROOT / name
+    MEDIA_DIR = PROJECT_DIR / "media"
+    OUTPUT_DIR = PROJECT_DIR / "output"
+    PROJECT_FILE = PROJECT_DIR / "project.json"
+
+
+def _save_manual_history():
+    try:
+        tmp = PROJECT_DIR / (_MANUAL_HISTORY_FILE + ".tmp")
+        tmp.write_text(json.dumps({"undo": MANUAL_UNDO, "redo": MANUAL_REDO},
+                                  ensure_ascii=False), encoding="utf-8")
+        tmp.replace(PROJECT_DIR / _MANUAL_HISTORY_FILE)
+    except Exception:
+        pass  # history persistence must never break an edit
+
+
+def _load_manual_history():
+    global MANUAL_UNDO, MANUAL_REDO
+    try:
+        data = json.loads((PROJECT_DIR / _MANUAL_HISTORY_FILE).read_text(
+            encoding="utf-8"))
+        MANUAL_UNDO = data.get("undo", []) if isinstance(data, dict) else []
+        MANUAL_REDO = data.get("redo", []) if isinstance(data, dict) else []
+    except Exception:
+        MANUAL_UNDO, MANUAL_REDO = [], []
+
+
+def _snapshot_project():
+    return json.loads(json.dumps(PROJECT, ensure_ascii=False))
+
+
+def _apply_manual(mutator):
+    """Run a manual timeline mutation with undo support.
+
+    The pre-mutation state is pushed onto the undo stack only if the
+    mutation succeeds; on failure the project is restored from the
+    snapshot and nothing is pushed or saved. A successful edit clears
+    the redo stack. AI routes must NOT use this helper.
+    """
+    before = _snapshot_project()
+    try:
+        result = mutator()
+    except Exception:
+        PROJECT.clear()
+        PROJECT.update(before)
+        raise
+    MANUAL_UNDO.append(before)
+    del MANUAL_UNDO[:-_MANUAL_MAX]
+    MANUAL_REDO.clear()
+    _save_manual_history()
+    save()
+    return result
+
+
+def switch_active_project(name):
+    """Switch (or create-and-switch) to a project. Returns its project."""
+    global PROJECT
+    _save_manual_history()
+    _set_active_dirs(name)
+    PROJECT_DIR.mkdir(parents=True, exist_ok=True)
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    PROJECT = load_or_new()
+    _load_manual_history()
+    PENDING_PLAN.update({"plan": None, "command": "",
+                         "provider": "", "model": ""})
+    return PROJECT
+
+
+def create_project(name):
+    """Create a new project and switch to it. Raises if it exists."""
+    name = validate_project_name(str(name).strip())
+    if project_dir_for(name).exists():
+        raise ValueError(f"Project already exists: {name}")
+    switch_active_project(name)
+    save()
+    return PROJECT
+
+
+def rename_project(old, new):
+    """Rename a project directory. Raises if old is missing or new exists."""
+    old = validate_project_name(str(old).strip())
+    new = validate_project_name(str(new).strip())
+    old_dir, new_dir = project_dir_for(old), project_dir_for(new)
+    if not old_dir.exists():
+        raise ValueError(f"No such project: {old}")
+    if new_dir.exists():
+        raise ValueError(f"Project already exists: {new}")
+    old_dir.rename(new_dir)
+    if ACTIVE_PROJECT_NAME == old:
+        switch_active_project(new)
+    return old, new
+
+
+def history_undo():
+    """Restore the previous manual state. Raises if nothing to undo."""
+    if not MANUAL_UNDO:
+        raise ValueError("Nothing to undo.")
+    MANUAL_REDO.append(_snapshot_project())
+    snapshot = MANUAL_UNDO.pop()
+    PROJECT.clear()
+    PROJECT.update(snapshot)
+    _save_manual_history()
+    save()
+    return PROJECT
+
+
+def history_redo():
+    """Restore the state undone by history_undo. Raises if none."""
+    if not MANUAL_REDO:
+        raise ValueError("Nothing to redo.")
+    MANUAL_UNDO.append(_snapshot_project())
+    del MANUAL_UNDO[:-_MANUAL_MAX]
+    snapshot = MANUAL_REDO.pop()
+    PROJECT.clear()
+    PROJECT.update(snapshot)
+    _save_manual_history()
+    save()
+    return PROJECT
 
 
 def load_or_new():
@@ -65,6 +220,7 @@ def load_or_new():
 
 
 PROJECT = load_or_new()
+_load_manual_history()
 
 # AI state (in memory only — never written to the repo or project.json):
 # a pending proposal awaiting the user's "Ap dung", and the AI log file.
@@ -78,7 +234,9 @@ def save():
 
 def _log_ai(event):
     try:
-        ai_mod.log_ai_event(AI_LOG, event)
+        # Computed from PROJECT_DIR at call time so switching projects
+        # also switches the log file (AI_LOG is only the initial path).
+        ai_mod.log_ai_event(PROJECT_DIR / "ai.log", event)
     except Exception:
         pass  # logging must never break an edit
 
@@ -148,6 +306,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({
                     "project": PROJECT,
                     "duration": tl.project_duration(PROJECT),
+                    "active_project": ACTIVE_PROJECT_NAME,
+                    "projects": list_projects(),
+                    "can_undo": bool(MANUAL_UNDO),
+                    "can_redo": bool(MANUAL_REDO),
+                })
+            if path == "/api/projects":
+                return self._send_json({
+                    "projects": list_projects(),
+                    "active_project": ACTIVE_PROJECT_NAME,
                 })
             if path == "/api/ai/status":
                 from urllib.parse import parse_qs
@@ -243,29 +410,63 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/project/save":
                 save()
                 return self._send_json({"ok": True, "project": PROJECT})
+            if path == "/api/projects":
+                create_project(body.get("name", ""))
+                return self._send_json({"ok": True, "project": PROJECT,
+                                        "active_project": ACTIVE_PROJECT_NAME}, 201)
+            if path == "/api/projects/switch":
+                name = validate_project_name(str(body.get("name", "")).strip())
+                if not project_dir_for(name).exists():
+                    return self._send_error_json(f"No such project: {name}")
+                switch_active_project(name)
+                return self._send_json({"ok": True, "project": PROJECT,
+                                        "active_project": name})
+            if path == "/api/projects/rename":
+                old, new = rename_project(
+                    body.get("name") or body.get("old") or "",
+                    body.get("new_name") or body.get("new") or "")
+                return self._send_json({"ok": True, "old": old, "new": new,
+                                        "active_project": ACTIVE_PROJECT_NAME})
+            if path == "/api/history/undo":
+                history_undo()
+                return self._send_json({"ok": True, "project": PROJECT,
+                                        "can_undo": bool(MANUAL_UNDO),
+                                        "can_redo": bool(MANUAL_REDO)})
+            if path == "/api/history/redo":
+                history_redo()
+                return self._send_json({"ok": True, "project": PROJECT,
+                                        "can_undo": bool(MANUAL_UNDO),
+                                        "can_redo": bool(MANUAL_REDO)})
+            if path == "/api/timeline/split-at-playhead":
+                at = float(body["at"])
+                clip = tl.clip_covering(
+                    PROJECT, at, body.get("selected_clip_id") or None)
+                if clip is None:
+                    return self._send_error_json(
+                        f"No clip under the playhead at {at:.1f}s.")
+                first, second = _apply_manual(
+                    lambda: tl.split_clip(PROJECT, clip["id"], at))
+                return self._send_json({"first": first, "second": second})
             if path == "/api/project/reset":
                 if not body.get("confirm"):
                     return self._send_error_json("reset needs confirm=true")
-                PROJECT.clear()
-                PROJECT.update(tl.new_project())
-                save()
+                _apply_manual(lambda: (PROJECT.clear(),
+                                       PROJECT.update(tl.new_project())))
                 return self._send_json({"ok": True, "project": PROJECT})
             if path == "/api/clips":
-                clip = tl.add_clip(PROJECT, body)
-                save()
+                clip = _apply_manual(lambda: tl.add_clip(PROJECT, body))
                 return self._send_json({"clip": clip}, 201)
             if path == "/api/global-edits":
-                edits = tl.set_global_edits(PROJECT, body)
-                save()
+                edits = _apply_manual(
+                    lambda: tl.set_global_edits(PROJECT, body))
                 return self._send_json({"global_edits": edits})
             if path == "/api/global-edits/reset":
-                edits = tl.reset_global_edits(PROJECT)
-                save()
+                edits = _apply_manual(
+                    lambda: tl.reset_global_edits(PROJECT))
                 return self._send_json({"global_edits": edits})
             if path == "/api/music":
-                music = tl.set_background_music(
-                    PROJECT, body.get("source"), body.get("volume", 0.15))
-                save()
+                music = _apply_manual(lambda: tl.set_background_music(
+                    PROJECT, body.get("source"), body.get("volume", 0.15)))
                 return self._send_json({"background_music": music})
             if path == "/api/models/ollama/pull":
                 result = model_mod.pull_ollama_model(body.get("name", ""))
@@ -333,19 +534,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": True, "project": PROJECT})
             if path == "/api/export":
                 return self._export(body)
-            m = re.match(r"^/api/clips/([^/]+)/(split|move)$", path)
+            m = re.match(r"^/api/clips/([^/]+)/(split|move|copy)$", path)
             if m:
                 clip_id, action = m.groups()
                 if action == "split":
-                    first, second = tl.split_clip(PROJECT, clip_id, float(body["at"]))
-                    save()
+                    first, second = _apply_manual(
+                        lambda: tl.split_clip(PROJECT, clip_id, float(body["at"])))
                     return self._send_json({"first": first, "second": second})
-                clip = tl.move_clip(PROJECT, clip_id, body["track"], body["start"])
-                save()
+                if action == "copy":
+                    clip = _apply_manual(
+                        lambda: tl.copy_clip(PROJECT, clip_id))
+                    return self._send_json({"clip": clip}, 201)
+                clip = _apply_manual(
+                    lambda: tl.move_clip(PROJECT, clip_id, body["track"],
+                                         body["start"]))
                 return self._send_json({"clip": clip})
             if path == "/api/timeline/reorder":
-                clips = tl.reorder_track(PROJECT, int(body["track"]), list(body["ids"]))
-                save()
+                clips = _apply_manual(
+                    lambda: tl.reorder_track(PROJECT, int(body["track"]),
+                                             list(body["ids"])))
                 return self._send_json({"clips": clips})
             return self._send_error_json("not found", 404)
         except ai_mod.AIError as exc:
@@ -423,8 +630,9 @@ class Handler(BaseHTTPRequestHandler):
         if not m:
             return self._send_error_json("not found", 404)
         try:
-            clip = tl.update_clip(PROJECT, m.group(1), self._read_json())
-            save()
+            body = self._read_json()
+            clip = _apply_manual(
+                lambda: tl.update_clip(PROJECT, m.group(1), body))
             return self._send_json({"clip": clip})
         except (ValueError, KeyError) as exc:
             return self._send_error_json(str(exc), 400)
@@ -438,12 +646,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             m = re.match(r"^/api/clips/([^/]+)$", path)
             if m:
-                tl.delete_clip(PROJECT, m.group(1))
-                save()
+                _apply_manual(lambda: tl.delete_clip(PROJECT, m.group(1)))
                 return self._send_json({"ok": True})
             if path == "/api/music":
-                tl.set_background_music(PROJECT, None)
-                save()
+                _apply_manual(lambda: tl.set_background_music(PROJECT, None))
                 return self._send_json({"ok": True})
             return self._send_error_json("not found", 404)
         except (ValueError, KeyError) as exc:

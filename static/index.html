@@ -9,6 +9,8 @@
 <body>
 <header>
   <h1>ADIT <span>• MVP</span></h1>
+  <button id="btnUndo">Hoàn tác (thủ công)</button>
+  <button id="btnRedo">Làm lại (thủ công)</button>
   <button id="btnSave">Lưu dự án</button>
   <button id="btnExportDraft">Xuất bản nháp (540×960)</button>
   <button id="btnExportFull" class="primary">Xuất video (1080×1920)</button>
@@ -18,6 +20,18 @@
 
 <main>
   <section class="panel" id="mediaPanel">
+    <h2>Dự án</h2>
+    <label>Dự án đang mở</label>
+    <select id="projectSelect"></select>
+    <button id="btnSwitchProject" style="margin-top:8px;width:100%">Chuyển sang dự án đã chọn</button>
+    <label>Tên dự án mới (chỉ chữ, số, gạch ngang, gạch dưới)</label>
+    <input type="text" id="newProjectName" placeholder="vd: video-moi">
+    <button id="btnCreateProject" style="margin-top:8px;width:100%">Tạo dự án mới</button>
+    <label>Đổi tên dự án đang mở thành</label>
+    <input type="text" id="renameProjectName" placeholder="vd: video-moi-2">
+    <button id="btnRenameProject" style="margin-top:8px;width:100%">Đổi tên dự án</button>
+    <p style="font-size:12px;color:var(--muted)">Dự án lưu ở projects/&lt;tên&gt;/, mỗi dự án có media và output riêng. Hoàn tác thủ công chỉ áp dụng trong dự án đang mở.</p>
+    <hr>
     <h2>Thư viện media</h2>
     <form id="uploadForm">
       <label>Thêm file video / ảnh / nhạc</label>
@@ -31,6 +45,23 @@
     <textarea id="textContent" rows="2" placeholder="Nhập chữ hiển thị..."></textarea>
     <label>Thời lượng (giây)</label>
     <input type="number" id="textDuration" value="3" min="0.5" step="0.5">
+    <label>Preset chữ (bấm để đặt nhanh cỡ/màu/vị trí, vẫn sửa được sau)</label>
+    <div>
+      <button type="button" class="textPresetBtn" data-preset="title">Tiêu đề</button>
+      <button type="button" class="textPresetBtn" data-preset="subtitle">Phụ đề</button>
+      <button type="button" class="textPresetBtn" data-preset="caption">Chú thích dưới</button>
+      <button type="button" class="textPresetBtn" data-preset="toplabel">Nhãn trên</button>
+    </div>
+    <label>Cỡ chữ</label>
+    <input type="number" id="textFontSize" value="48" min="12" max="200">
+    <label>Màu chữ</label>
+    <input type="text" id="textColor" value="#FFFFFF" placeholder="#FFFFFF">
+    <label>Vị trí</label>
+    <select id="textPosition">
+      <option value="center">Giữa</option>
+      <option value="top">Trên</option>
+      <option value="bottom">Dưới</option>
+    </select>
     <button id="btnAddText" style="margin-top:8px;width:100%">Thêm chữ vào timeline</button>
   </section>
 
@@ -46,6 +77,7 @@
       <label>Vị trí tách (giây, theo timeline)</label>
       <input type="number" id="splitAt" value="0" min="0" step="0.1">
       <button id="btnSplit">Tách clip đang chọn tại vị trí này</button>
+      <button id="btnSplitPlayhead" style="margin-top:8px;width:100%">Tách clip tại playhead (phím S)</button>
     </div>
     <div class="aiPanel" style="margin-top:14px">
       <strong>AI — sửa trực tiếp trên timeline khi bạn yêu cầu</strong>
@@ -133,6 +165,10 @@
       <input type="number" id="propSpeed" min="0.5" max="2" step="0.1">
       <label>Âm lượng (0–1.5)</label>
       <input type="number" id="propVolume" min="0" max="1.5" step="0.1">
+      <label>Âm thanh mờ dần vào (giây, 0–5, ngắn hơn clip)</label>
+      <input type="number" id="propFadeIn" min="0" max="5" step="0.1">
+      <label>Âm thanh mờ dần ra (giây, 0–5, ngắn hơn clip)</label>
+      <input type="number" id="propFadeOut" min="0" max="5" step="0.1">
       <label><input type="checkbox" id="propMuted" style="width:auto"> Tắt tiếng clip này</label>
       <label>Hiệu ứng</label>
       <select id="propEffect">
@@ -144,6 +180,13 @@
         <option value="zoom_out">Zoom ra</option>
       </select>
       <div id="textProps">
+        <label>Preset chữ (bấm để đặt nhanh, vẫn sửa được sau)</label>
+        <div>
+          <button type="button" class="textPresetBtn" data-preset="title">Tiêu đề</button>
+          <button type="button" class="textPresetBtn" data-preset="subtitle">Phụ đề</button>
+          <button type="button" class="textPresetBtn" data-preset="caption">Chú thích dưới</button>
+          <button type="button" class="textPresetBtn" data-preset="toplabel">Nhãn trên</button>
+        </div>
         <label>Nội dung chữ</label>
         <textarea id="propText" rows="2"></textarea>
         <label>Cỡ chữ</label>
@@ -158,6 +201,7 @@
         </select>
       </div>
       <button id="btnApplyProps" class="primary" style="margin-top:10px;width:100%">Áp dụng</button>
+      <button id="btnCopyClip" style="margin-top:8px;width:100%">Sao chép clip này (dán ngay sau clip gốc nếu còn chỗ)</button>
       <button id="btnDeleteClip" style="margin-top:8px;width:100%">Xóa clip này</button>
     </div>
     <hr>
@@ -197,7 +241,7 @@
     <span id="zoomLabel">60px/giây</span>
     <span id="playheadLabel">Playhead: 00:00.0</span>
   </div>
-  <p style="color:var(--muted);font-size:13px">Kéo ngang một clip để di chuyển nó trên cùng track (thả chuột mới lưu một lần). Bấm vào thước thời gian để di chuyển playhead; khung xem trước sẽ hiện khung hình đại diện của clip tại vị trí đó (chưa phải bản render timeline). Bấm vào một clip để chọn và sửa ở bảng bên phải. Clip video/ảnh/chữ trên cùng một track không được chồng lên nhau; clip nhạc được trộn âm thanh nên có thể chồng lên nhau.</p>
+  <p style="color:var(--muted);font-size:13px">Kéo một clip để di chuyển nó — kéo ngang đổi thời gian, kéo dọc sang track khác cũng được (track đích sẽ sáng lên khi kéo; thả chuột mới lưu một lần). Bấm vào thước thời gian để di chuyển playhead; khung xem trước sẽ hiện khung hình đại diện của clip tại vị trí đó (chưa phải bản render timeline). Bấm vào một clip để chọn và sửa ở bảng bên phải. Clip video/ảnh/chữ trên cùng một track không được chồng lên nhau; clip nhạc được trộn âm thanh nên có thể chồng lên nhau.</p>
   <div id="tracks"></div>
 </section>
 

@@ -33,6 +33,7 @@ main { display:grid; grid-template-columns:240px 1fr 300px; gap:10px; padding:10
 .tracksBox { position:relative; }
 .playhead { position:absolute; top:0; bottom:0; width:2px; background:var(--accent); pointer-events:none; z-index:5; }
 .track { position:relative; min-height:76px; border-top:1px solid var(--border); margin-top:8px; }
+.track.targetTrack { outline:2px dashed var(--accent2); background:#26231a; }
 .trackLabel { font-size:12px; color:var(--muted); }
 .clipBlock { position:absolute; top:18px; height:54px; background:#3b4a6b; border:1px solid #5b739e; border-radius:6px; padding:3px 6px; font-size:12px; overflow:hidden; white-space:nowrap; cursor:grab; }
 .clipBlock.dragging { cursor:grabbing; outline:2px solid var(--accent2); }

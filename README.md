@@ -67,6 +67,59 @@ hiệu ứng/transition cầu kỳ — phần đó người dùng đã dặn đ�
   **chưa có** và chỉ được ghi chú là giai đoạn sau, không có nút nào
   giả vờ chạy chúng.
 
+## Tính năng cốt lõi mới (hoàn tác, nhiều dự án, mờ âm thanh, preset chữ)
+
+- **Hoàn tác / Làm lại cho thao tác thủ công (riêng với hoàn tác của
+  AI):** mọi thao tác thủ công qua API — thêm, di chuyển, sắp xếp
+  lại, cắt đầu nguồn, tách, xóa, sửa chữ/tốc độ/âm lượng, chỉnh toàn
+  cục, nhạc nền — đều lưu trạng thái trước khi sửa vào ngăn xếp hoàn
+  tác (tối đa 50 mục, lưu cả trong bộ nhớ và file
+  `<dự án>/manual_history.json`). Nút "Hoàn tác (thủ công)" và "Làm
+  lại (thủ công)" ở đầu trang khôi phục các trạng thái theo thứ tự;
+  một thao tác mới sau khi hoàn tác sẽ xóa ngăn xếp làm lại. Thao tác
+  thất bại (ví dụ tốc độ ngoài khoảng) không đẩy gì vào ngăn xếp và
+  không thay đổi timeline. Hoàn tác của AI vẫn dùng bản sao
+  `project.json.bak` riêng, không bị ảnh hưởng.
+- **Kéo clip sang track khác:** kéo ngang để đổi thời gian, kéo dọc
+  để đổi track — track đích sáng lên khi kéo, thả chuột mới lưu một
+  lần. Quy tắc chồng clip vẫn giữ nguyên: clip video/ảnh/chữ không
+  được chồng trên cùng một track ở track đích, clip nhạc thì được
+  trộn nên có thể chồng. Muốn tạo track hoàn toàn mới mà chưa có clip
+  nào, dùng ô Track trong bảng thuộc tính (timeline luôn hiện thêm
+  một hàng track trống tiếp theo để kéo vào).
+- **Tách tại playhead:** nút "Tách clip tại playhead" (hoặc phím S khi
+  không đang gõ chữ) tách clip đang nằm dưới playhead tại đúng thời
+  điểm đó, dùng chung logic tách cũ: playhead phải nằm hẳn trong clip,
+  ở đúng mép clip thì bị từ chối.
+- **Sao chép clip:** nút "Sao chép clip này" tạo một clip mới (id
+  mới, cùng media/hiệu ứng) ngay sau clip gốc nếu còn chỗ trống, nếu
+  không thì đặt ở cuối track đó mà không chồng clip khác; nếu cả hai
+  cách đều không được thì báo lỗi rõ và không thay đổi gì.
+- **Nhiều dự án + đổi tên:** bảng "Dự án" ở cột trái liệt kê các dự
+  án trong `projects/`, tạo dự án mới (timeline trống, media/output
+  riêng), chuyển dự án đang mở, đổi tên dự án đang mở. Tên dự án chỉ
+  nhận chữ, số, gạch ngang, gạch dưới (1–64 ký tự, không có dấu gạch
+  chéo), đổi tên sang tên đã có bị từ chối. Server không bao giờ phục
+  vụ hay xóa file ngoài `projects/`.
+- **Mờ âm thanh từng clip (audio fade):** trong bảng thuộc tính, đặt
+  `fade_in_seconds` / `fade_out_seconds` (0–5 giây, mỗi cái ngắn hơn
+  clip, tổng không vượt quá clip) cho clip video/nhạc; khi xuất,
+  FFmpeg áp `afade` vào đúng chuỗi âm thanh của clip đó, và kết quả
+  xuất ghi rõ `audio_fades` đã áp cho clip nào.
+- **Preset chữ:** 4 preset một lần bấm — Tiêu đề (cỡ 96, giữa,
+  trắng), Phụ đề (48, dưới, trắng), Chú thích dưới (40, dưới, vàng),
+  Nhãn trên (56, trên, trắng). Preset chỉ đặt giá trị khởi đầu cho
+  cỡ/màu/vị trí, bạn vẫn sửa tiếp được trước khi bấm Áp dụng, cả khi
+  thêm chữ mới lẫn khi sửa clip chữ đã chọn.
+- **Tự động lưu (autosave) — kết quả kiểm tra:** đã rà soát mọi route
+  API thay đổi timeline; các route thủ công cũ vốn đã gọi `save()` sau
+  mỗi lần sửa, nên không phát hiện route nào sửa trong bộ nhớ mà quên
+  lưu. Để các route mới không thể quên lưu, mọi thao tác thủ công giờ
+  đi qua một hàm chung `_apply_manual` trong server: thao tác thành
+  công thì đẩy hoàn tác + lưu `project.json` ngay, thao tác thất bại
+  thì khôi phục lại trạng thái cũ và không lưu gì. Vì mọi thao tác
+  đều lưu ngay, chuyển dự án không bao giờ làm mất thao tác chưa lưu.
+
 ## AI — Ollama local miễn phí là mặc định
 
 ADIT **không đóng gói binary Ollama hay model vào repo** (quá nặng).

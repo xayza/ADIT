@@ -17,6 +17,8 @@ A clip::
         "volume": 1.0,               # 0.0 - 1.5
         "muted": false,
         "effect": "none",            # none|fade_in|fade_out|fade_both|zoom_in|zoom_out
+        "fade_in_seconds": 0.0,      # audio fade-in, 0-5s, < clip duration
+        "fade_out_seconds": 0.0,     # audio fade-out, 0-5s, < clip duration
         "text": "",                  # text clips only
         "font_size": 48,             # text clips only, pixels at 1080px width
         "color": "#FFFFFF",          # text clips only
@@ -141,6 +143,23 @@ def validate_clip(project, clip, check_overlap=True):
         errors.append("volume must be between 0.0 and 1.5")
     if clip.get("effect", "none") not in EFFECTS:
         errors.append(f"unknown effect: {clip.get('effect')!r}")
+    for key in ("fade_in_seconds", "fade_out_seconds"):
+        try:
+            val = float(clip.get(key, 0.0))
+        except (TypeError, ValueError):
+            errors.append(f"{key} must be a number")
+            continue
+        if not 0.0 <= val <= 5.0:
+            errors.append(f"{key} must be between 0 and 5 seconds")
+        elif isinstance(clip.get("duration"), (int, float)) and val >= clip["duration"]:
+            errors.append(f"{key} must be shorter than the clip duration")
+    try:
+        if (float(clip.get("fade_in_seconds", 0.0))
+                + float(clip.get("fade_out_seconds", 0.0))
+                > float(clip.get("duration", 0.0))):
+            errors.append("audio fades together must not exceed the clip duration")
+    except (TypeError, ValueError):
+        pass
     if clip.get("type") in ("image", "text") and clip.get("trim_in", 0) != 0:
         errors.append("image and text clips must have trim_in == 0")
     if clip.get("type") == "text":
@@ -183,6 +202,8 @@ def add_clip(project, fields, media=None):
         "volume": float(fields.get("volume", 1.0)),
         "muted": bool(fields.get("muted", False)),
         "effect": fields.get("effect", "none"),
+        "fade_in_seconds": float(fields.get("fade_in_seconds", 0.0)),
+        "fade_out_seconds": float(fields.get("fade_out_seconds", 0.0)),
         "text": fields.get("text", ""),
         "font_size": int(fields.get("font_size", 48)),
         "color": fields.get("color", "#FFFFFF"),
@@ -210,12 +231,13 @@ def update_clip(project, clip_id, patch):
     merged = dict(clip)
     for key in ("source", "track", "start", "duration", "trim_in", "speed",
                 "volume", "muted", "effect", "text", "font_size", "color",
-                "position"):
+                "position", "fade_in_seconds", "fade_out_seconds"):
         if key in patch:
             merged[key] = patch[key]
     if "track" in patch:
         merged["track"] = int(merged["track"])
-    for key in ("start", "duration", "trim_in", "speed", "volume"):
+    for key in ("start", "duration", "trim_in", "speed", "volume",
+                "fade_in_seconds", "fade_out_seconds"):
         if key in merged:
             merged[key] = float(merged[key])
     if "font_size" in merged:
@@ -230,6 +252,61 @@ def delete_clip(project, clip_id):
     clip = get_clip(project, clip_id)
     project["clips"].remove(clip)
     return clip
+
+
+def clip_covering(project, at, prefer_id=None):
+    """Clip covering project time ``at``, or None.
+
+    Prefers the selected clip when it covers ``at``; otherwise the
+    lowest track, then the earliest start. Edges do not count as
+    covering (a clip covers start <= at < start + duration).
+    """
+    covering = [c for c in project["clips"]
+                if c["start"] <= at < c["start"] + c["duration"]]
+    if not covering:
+        return None
+    if prefer_id:
+        for clip in covering:
+            if clip["id"] == prefer_id:
+                return clip
+    covering.sort(key=lambda c: (c["track"], c["start"]))
+    return covering[0]
+
+
+def copy_clip(project, clip_id):
+    """Duplicate a clip. Returns the new clip; changes nothing on failure.
+
+    Tries, in order: right after the original, then at the end of the
+    same track (for non-audio clips, where overlap is forbidden).
+    Audio clips may overlap, so the first candidate always applies.
+    Each candidate is fully validated before anything is appended.
+    """
+    original = get_clip(project, clip_id)
+    fields = dict(original)
+    fields.pop("id", None)
+    if original["type"] != "audio":
+        track_end = max(
+            (c["start"] + c["duration"] for c in project["clips"]
+             if c["track"] == original["track"] and c["type"] != "audio"),
+            default=0.0)
+        candidates = [original["start"] + original["duration"], track_end]
+    else:
+        candidates = [original["start"] + original["duration"]]
+    last_error = None
+    for start in candidates:
+        trial = dict(fields)
+        trial["start"] = float(start)
+        trial_clip = dict(trial)
+        trial_clip["id"] = "__copy_trial__"
+        try:
+            validate_clip(project, trial_clip)
+        except ValueError as exc:
+            last_error = exc
+            continue
+        new_clip = add_clip(project, trial)
+        return new_clip
+    raise ValueError(f"cannot copy clip: no free spot on track "
+                     f"{original['track']} ({last_error})")
 
 
 def split_clip(project, clip_id, at):
@@ -308,6 +385,10 @@ def validate_project(project):
         merged.update(project["global_edits"])
         validate_global_edits(merged)
         project["global_edits"] = merged
+    # Old projects predate audio fades; normalise instead of failing.
+    for clip in project["clips"]:
+        clip.setdefault("fade_in_seconds", 0.0)
+        clip.setdefault("fade_out_seconds", 0.0)
     seen = set()
     for clip in project["clips"]:
         if clip["id"] in seen:
