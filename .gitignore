@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+projects/default/media/
+projects/default/thumbs/
+projects/default/output/
+projects/default/project.json

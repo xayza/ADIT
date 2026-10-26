@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADIT — Trình chỉnh sửa video (MVP)</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>ADIT <span>• MVP</span></h1>
+  <button id="btnSave">Lưu dự án</button>
+  <button id="btnExportDraft">Xuất bản nháp (540×960)</button>
+  <button id="btnExportFull" class="primary">Xuất video (1080×1920)</button>
+  <label style="display:inline-flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="chkOverwrite" style="width:auto"> Ghi đè file xuất cũ</label>
+  <span id="status"></span>
+</header>
+
+<main>
+  <section class="panel" id="mediaPanel">
+    <h2>Thư viện media</h2>
+    <form id="uploadForm">
+      <label>Thêm file video / ảnh / nhạc</label>
+      <input type="file" id="fileInput" accept="video/*,image/*,audio/*" required>
+      <button type="submit" style="margin-top:8px;width:100%">Tải lên</button>
+    </form>
+    <div id="mediaList"></div>
+    <hr>
+    <h2>Thêm chữ</h2>
+    <label>Nội dung chữ</label>
+    <textarea id="textContent" rows="2" placeholder="Nhập chữ hiển thị..."></textarea>
+    <label>Thời lượng (giây)</label>
+    <input type="number" id="textDuration" value="3" min="0.5" step="0.5">
+    <button id="btnAddText" style="margin-top:8px;width:100%">Thêm chữ vào timeline</button>
+  </section>
+
+  <section class="panel" id="previewPanel">
+    <h2>Xem trước</h2>
+    <div id="previewWrap">
+      <video id="preview" controls playsinline></video>
+      <p id="previewNote">Chưa có bản xuất. Bấm “Xuất bản nháp” để xem video của timeline trong trình phát này. Ảnh đã chọn cũng hiện ở đây khi bạn bấm vào nó trong thư viện.</p>
+      <img id="previewImg" style="display:none;max-width:100%;border-radius:10px" alt="">
+    </div>
+    <div id="transport">
+      <label>Vị trí tách (giây, theo timeline)</label>
+      <input type="number" id="splitAt" value="0" min="0" step="0.1">
+      <button id="btnSplit">Tách clip đang chọn tại vị trí này</button>
+    </div>
+    <div class="aiPlaceholder" style="margin-top:14px">
+      <strong>AI — sẽ có ở Giai đoạn 2</strong>
+      <p>Ở bản MVP này chưa có AI. Sang Giai đoạn 2, tại đây sẽ là khung chat để bạn yêu cầu AI sửa trực tiếp trên timeline, với cùng một bộ quyền cho mọi nhà cung cấp AI.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="propsPanel">
+    <h2>Thuộc tính clip đang chọn</h2>
+    <p id="noSelection" style="color:var(--muted)">Bấm vào một clip trên timeline để sửa nó.</p>
+    <div id="propsForm" style="display:none">
+      <label>Track</label>
+      <input type="number" id="propTrack" min="0" step="1">
+      <label>Bắt đầu (giây)</label>
+      <input type="number" id="propStart" min="0" step="0.1">
+      <label>Thời lượng (giây)</label>
+      <input type="number" id="propDuration" min="0.1" step="0.1">
+      <label>Cắt đầu nguồn trim_in (giây)</label>
+      <input type="number" id="propTrimIn" min="0" step="0.1">
+      <label>Tốc độ (0.5–2.0)</label>
+      <input type="number" id="propSpeed" min="0.5" max="2" step="0.1">
+      <label>Âm lượng (0–1.5)</label>
+      <input type="number" id="propVolume" min="0" max="1.5" step="0.1">
+      <label><input type="checkbox" id="propMuted" style="width:auto"> Tắt tiếng clip này</label>
+      <label>Hiệu ứng</label>
+      <select id="propEffect">
+        <option value="none">Không có</option>
+        <option value="fade_in">Mờ dần vào</option>
+        <option value="fade_out">Mờ dần ra</option>
+        <option value="fade_both">Mờ cả vào và ra</option>
+        <option value="zoom_in">Zoom vào</option>
+        <option value="zoom_out">Zoom ra</option>
+      </select>
+      <div id="textProps">
+        <label>Nội dung chữ</label>
+        <textarea id="propText" rows="2"></textarea>
+        <label>Cỡ chữ</label>
+        <input type="number" id="propFontSize" min="12" max="200">
+        <label>Màu chữ</label>
+        <input type="text" id="propColor" placeholder="#FFFFFF">
+        <label>Vị trí</label>
+        <select id="propPosition">
+          <option value="center">Giữa</option>
+          <option value="top">Trên</option>
+          <option value="bottom">Dưới</option>
+        </select>
+      </div>
+      <button id="btnApplyProps" class="primary" style="margin-top:10px;width:100%">Áp dụng</button>
+      <button id="btnDeleteClip" style="margin-top:8px;width:100%">Xóa clip này</button>
+    </div>
+    <hr>
+    <h2>Nhạc nền</h2>
+    <label>Chọn file nhạc trong thư viện (nhập tên file)</label>
+    <input type="text" id="musicSource" placeholder="vd: nhac.mp3">
+    <label>Âm lượng nhạc nền (0–0.30)</label>
+    <input type="number" id="musicVolume" value="0.15" min="0" max="0.3" step="0.05">
+    <button id="btnSetMusic" style="margin-top:8px;width:100%">Đặt nhạc nền</button>
+    <button id="btnClearMusic" style="margin-top:8px;width:100%">Xóa nhạc nền</button>
+  </section>
+</main>
+
+<section id="timeline">
+  <div id="timelineHeader">
+    <h2 style="margin:0">Timeline</h2>
+    <span id="durationLabel"></span>
+  </div>
+  <p style="color:var(--muted);font-size:13px">Bấm vào một clip để chọn và sửa ở bảng bên phải. Clip video/ảnh/chữ trên cùng một track không được chồng lên nhau; clip nhạc được trộn âm thanh nên có thể chồng lên nhau.</p>
+  <div id="tracks"></div>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

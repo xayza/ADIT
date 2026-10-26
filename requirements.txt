@@ -1,0 +1,3 @@
+# ADIT MVP dependencies (backend is stdlib-only; Pillow is used for
+# image thumbnails and rendering text overlays).
+Pillow>=10.0
