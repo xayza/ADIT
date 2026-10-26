@@ -46,9 +46,73 @@
       <input type="number" id="splitAt" value="0" min="0" step="0.1">
       <button id="btnSplit">Tách clip đang chọn tại vị trí này</button>
     </div>
-    <div class="aiPlaceholder" style="margin-top:14px">
-      <strong>AI — sẽ có ở Giai đoạn 2</strong>
-      <p>Ở bản MVP này chưa có AI. Sang Giai đoạn 2, tại đây sẽ là khung chat để bạn yêu cầu AI sửa trực tiếp trên timeline, với cùng một bộ quyền cho mọi nhà cung cấp AI.</p>
+    <div class="aiPanel" style="margin-top:14px">
+      <strong>AI — sửa trực tiếp trên timeline khi bạn yêu cầu</strong>
+      <p id="aiStatusLine" style="font-size:13px">Đang kiểm tra trạng thái AI...</p>
+      <label>Nhà cung cấp AI (mặc định: Ollama local, miễn phí, không cần key)</label>
+      <select id="aiProvider">
+        <option value="ollama">Ollama local (miễn phí)</option>
+        <option value="openai">OpenAI tương thích (trả phí, tự nhập key)</option>
+        <option value="anthropic">Anthropic / Claude (trả phí, tự nhập key)</option>
+      </select>
+      <label>Tên model (để trống = model mặc định của nhà cung cấp)</label>
+      <input type="text" id="aiModel" placeholder="vd: qwen2.5:3b-instruct hoặc gpt-4o-mini">
+      <label>Host / Base URL (để trống = mặc định; Ollama: http://localhost:11434)</label>
+      <input type="text" id="aiEndpoint" placeholder="Để trống = mặc định">
+      <label>API key (chỉ cho AI trả phí; chỉ dùng trong phiên này, không lưu lại)</label>
+      <input type="password" id="aiApiKey" placeholder="Để trống nếu dùng biến môi trường hoặc Ollama">
+      <label>Yêu cầu của bạn (tiếng Việt)</label>
+      <textarea id="aiCommand" rows="3" placeholder="vd: Đoạn đầu xấu quá, làm animation mờ dần cho đẹp. Hoặc: cắt 2 giây đầu của clip đang chọn."></textarea>
+      <label><input type="checkbox" id="aiAutoApply" style="width:auto"> Tự áp dụng ngay khi AI trả về (mặc định: tắt — bạn xem đề xuất rồi mới bấm Áp dụng)</label>
+      <p style="font-size:12px">Nếu bạn đã chọn một clip trên timeline, lệnh sẽ ưu tiên áp cho clip đó. Mọi AI đều có cùng một bộ quyền, chỉ được sửa timeline trong danh sách cho phép, và luôn hoàn tác được.</p>
+      <button id="btnAiAsk" class="primary" style="width:100%">Hỏi AI</button>
+      <button id="btnAiApply" style="width:100%;margin-top:6px">Áp dụng đề xuất</button>
+      <button id="btnAiCancel" style="width:100%;margin-top:6px">Hủy đề xuất</button>
+      <button id="btnAiUndo" style="width:100%;margin-top:6px">Hoàn tác lần AI sửa gần nhất</button>
+      <ul id="aiProposal" style="font-size:13px"></ul>
+      <p id="aiMessage" style="font-size:13px;color:var(--accent2)"></p>
+    </div>
+
+    <div class="aiPanel" style="margin-top:14px">
+      <strong>Quản lý model AI + Phiên âm local</strong>
+      <p style="font-size:12px">Tải/xóa model Ollama và Whisper tại đây. Xóa model chỉ áp dụng cho model đã liệt kê, và cần tick ô xác nhận. Phiên âm chạy local bằng faster-whisper sau khi đã tải model, không cần mạng cho bước phiên âm.</p>
+      <button id="btnRefreshModels" style="width:100%">Tải lại danh sách model</button>
+      <div id="modelList" style="font-size:13px"></div>
+      <label>Tải model Ollama (tên, vd: qwen2.5:3b-instruct)</label>
+      <input type="text" id="ollamaModelName" placeholder="qwen2.5:3b-instruct">
+      <button id="btnPullOllama" style="width:100%;margin-top:6px">Tải model Ollama</button>
+      <label>Tải model Whisper (máy yếu chọn tiny)</label>
+      <select id="whisperModelName">
+        <option value="tiny">tiny</option>
+        <option value="base">base</option>
+        <option value="small">small</option>
+        <option value="medium">medium</option>
+        <option value="large-v3">large-v3</option>
+      </select>
+      <button id="btnDownloadWhisper" style="width:100%;margin-top:6px">Tải model Whisper</button>
+      <label><input type="checkbox" id="chkConfirmDeleteModel" style="width:auto"> Tôi xác nhận muốn xóa model đã chọn (hành động này không hoàn tác được)</label>
+      <hr>
+      <h2 style="margin-top:10px">Phiên âm local</h2>
+      <label>Tên file video/nhạc trong dự án</label>
+      <input type="text" id="transcribeSource" placeholder="vd: video.mp4">
+      <label>Model Whisper</label>
+      <select id="transcribeModel">
+        <option value="tiny">tiny</option>
+        <option value="base">base</option>
+        <option value="small">small</option>
+        <option value="medium">medium</option>
+        <option value="large-v3">large-v3</option>
+      </select>
+      <button id="btnTranscribe" style="width:100%;margin-top:6px">Phiên âm local</button>
+      <label>Bản ghi (đọc được, lưu ở projects/default/transcript.txt)</label>
+      <textarea id="transcriptText" rows="6" placeholder="Chưa có bản ghi. Phiên âm một file trong dự án trước."></textarea>
+      <p style="font-size:12px">Các nút dưới đây dùng AI đã chọn ở bảng AI phía trên (mặc định Ollama local) để gợi ý từ bản ghi. Chúng chỉ tạo chữ gợi ý để bạn sao chép/sửa, không tự sửa timeline.</p>
+      <button id="btnChapters" style="width:100%">Tạo chapter từ bản ghi</button>
+      <button id="btnSummary" style="width:100%;margin-top:6px">Tóm tắt video</button>
+      <button id="btnMetadata" style="width:100%;margin-top:6px">Gợi ý tiêu đề / mô tả / hashtag</button>
+      <label>Kết quả gợi ý</label>
+      <textarea id="helperText" rows="8" placeholder="Kết quả gợi ý sẽ hiện ở đây để bạn sao chép."></textarea>
+      <p id="modelMessage" style="font-size:13px;color:var(--accent2)"></p>
     </div>
   </section>
 

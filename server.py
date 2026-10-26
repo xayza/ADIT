@@ -1,4 +1,4 @@
-"""ADIT MVP server (Phase 1, manual editing only, no AI, no network calls).
+"""ADIT server (Phase 1 manual editor + Phase 2 on-demand AI).
 
 Stdlib-only HTTP server: serves the editor UI from static/ and a JSON
 API under /api/. Run:
@@ -26,6 +26,8 @@ from urllib.parse import unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+import ai_service as ai_mod
+import model_service as model_mod
 import media as media_mod
 import render as render_mod
 import timeline as tl
@@ -52,9 +54,21 @@ def load_or_new():
 
 PROJECT = load_or_new()
 
+# AI state (in memory only — never written to the repo or project.json):
+# a pending proposal awaiting the user's "Ap dung", and the AI log file.
+AI_LOG = PROJECT_DIR / "ai.log"
+PENDING_PLAN = {"plan": None, "command": "", "provider": "", "model": ""}
+
 
 def save():
     tl.save_project(PROJECT, PROJECT_FILE)
+
+
+def _log_ai(event):
+    try:
+        ai_mod.log_ai_event(AI_LOG, event)
+    except Exception:
+        pass  # logging must never break an edit
 
 
 def _parse_multipart(body, content_type):
@@ -123,6 +137,45 @@ class Handler(BaseHTTPRequestHandler):
                     "project": PROJECT,
                     "duration": tl.project_duration(PROJECT),
                 })
+            if path == "/api/ai/status":
+                from urllib.parse import parse_qs
+                query = parse_qs(urlparse(self.path).query)
+                host = (query.get("host") or [None])[0]
+                ollama = ai_mod.OllamaProvider(host=host)
+                return self._send_json({
+                    "default_provider": "ollama",
+                    "providers": list(ai_mod.PROVIDER_NAMES),
+                    "default_models": ai_mod.DEFAULT_MODELS,
+                    "ollama": {"host": ollama.host,
+                               "reachable": ollama.status(),
+                               "default_model": ollama.model},
+                    "has_backup": ai_mod.has_snapshot(PROJECT_DIR),
+                    "has_pending": PENDING_PLAN["plan"] is not None,
+                })
+            if path == "/api/models":
+                try:
+                    ollama_models = model_mod.list_ollama_models()
+                    ollama_error = None
+                except ai_mod.AIError as exc:
+                    ollama_models, ollama_error = [], str(exc)
+                try:
+                    import faster_whisper  # noqa: F401
+                    fw_available = True
+                except ImportError:
+                    fw_available = False
+                return self._send_json({
+                    "ollama": {"reachable": ollama_error is None,
+                               "models": ollama_models, "error": ollama_error},
+                    "whisper": {"cache_dir": str(model_mod.whisper_cache_dir()),
+                                "models": model_mod.list_whisper_models(),
+                                "faster_whisper_available": fw_available,
+                                "sizes": list(model_mod.WHISPER_SIZES)},
+                })
+            if path == "/api/transcript":
+                try:
+                    return self._send_json(model_mod.load_transcript(PROJECT_DIR))
+                except FileNotFoundError as exc:
+                    return self._send_error_json(str(exc), 404)
             if path.startswith("/api/media-file/"):
                 name = unquote(path[len("/api/media-file/"):])
                 target = (MEDIA_DIR / name).resolve()
@@ -182,6 +235,70 @@ class Handler(BaseHTTPRequestHandler):
                     PROJECT, body.get("source"), body.get("volume", 0.15))
                 save()
                 return self._send_json({"background_music": music})
+            if path == "/api/models/ollama/pull":
+                result = model_mod.pull_ollama_model(body.get("name", ""))
+                return self._send_json(result)
+            if path == "/api/models/ollama/delete":
+                if not body.get("confirm"):
+                    return self._send_error_json(
+                        "Xóa model cần confirm=true (tick ô xác nhận trong giao diện).")
+                result = model_mod.delete_ollama_model(body.get("name", ""))
+                return self._send_json(result)
+            if path == "/api/models/whisper/download":
+                result = model_mod.download_whisper_model(body.get("model", ""))
+                return self._send_json(result)
+            if path == "/api/models/whisper/delete":
+                if not body.get("confirm"):
+                    return self._send_error_json(
+                        "Xóa model cần confirm=true (tick ô xác nhận trong giao diện).")
+                result = model_mod.delete_whisper_model(body.get("name", ""))
+                return self._send_json(result)
+            if path == "/api/transcribe":
+                source = str(body.get("source", "")).strip()
+                if not source or "/" in source or "\\" in source:
+                    return self._send_error_json(
+                        "Chọn một file media đã có trong dự án (chỉ tên file).")
+                target = (MEDIA_DIR / source).resolve()
+                if not target.is_file() or target.parent != MEDIA_DIR.resolve():
+                    return self._send_error_json("File media không có trong dự án.")
+                result = model_mod.transcribe_media(
+                    target, body.get("model") or "tiny")
+                files = model_mod.save_transcript(PROJECT_DIR, result)
+                _log_ai({"event": "transcribe", "provider": "faster-whisper-local",
+                         "model": body.get("model") or "tiny",
+                         "command": source, "operations": [],
+                         "applied": False})
+                return self._send_json({**result, **files})
+            if path == "/api/ai/helpers":
+                helper = body.get("helper", "")
+                transcript = model_mod.load_transcript(PROJECT_DIR)
+                provider = ai_mod.get_provider(body.get("provider") or "ollama", {
+                    "model": body.get("model") or None,
+                    "host": body.get("host") or body.get("base_url") or None,
+                    "base_url": body.get("base_url") or body.get("host") or None,
+                    "api_key": body.get("api_key") or None,
+                })
+                out = ai_mod.generate_helper(provider, helper, transcript["text"])
+                _log_ai({"event": "helper", "provider": body.get("provider") or "ollama",
+                         "model": provider.model, "command": helper,
+                         "operations": [], "applied": False})
+                return self._send_json(out)
+            if path == "/api/ai/propose":
+                return self._ai_propose(body)
+            if path == "/api/ai/apply":
+                return self._ai_apply(body)
+            if path == "/api/ai/cancel":
+                PENDING_PLAN.update({"plan": None, "command": "",
+                                     "provider": "", "model": ""})
+                return self._send_json({"ok": True})
+            if path == "/api/ai/undo":
+                restored = ai_mod.load_snapshot(PROJECT_DIR)
+                PROJECT.clear()
+                PROJECT.update(restored)
+                save()
+                _log_ai({"event": "undo", "provider": "", "model": "",
+                         "command": "", "operations": [], "applied": True})
+                return self._send_json({"ok": True, "project": PROJECT})
             if path == "/api/export":
                 return self._export(body)
             m = re.match(r"^/api/clips/([^/]+)/(split|move)$", path)
@@ -199,11 +316,75 @@ class Handler(BaseHTTPRequestHandler):
                 save()
                 return self._send_json({"clips": clips})
             return self._send_error_json("not found", 404)
+        except ai_mod.AIError as exc:
+            return self._send_error_json(str(exc), 502)
         except (ValueError, KeyError, FileNotFoundError) as exc:
             return self._send_error_json(str(exc), 400)
         except Exception as exc:
             traceback.print_exc()
             return self._send_error_json(str(exc), 500)
+
+    def _ai_propose(self, body):
+        command = str(body.get("command", "")).strip()
+        if not command:
+            return self._send_error_json("Nhập yêu cầu cho AI trước.")
+        provider_name = body.get("provider") or "ollama"
+        settings = {
+            "model": body.get("model") or None,
+            "host": body.get("host") or body.get("base_url") or None,
+            "base_url": body.get("base_url") or body.get("host") or None,
+            "api_key": body.get("api_key") or None,
+        }
+        provider = ai_mod.get_provider(provider_name, settings)
+        model = provider.model
+        plan = provider.propose(command, PROJECT,
+                                body.get("selected_clip_id") or None)
+        errors = ai_mod.validate_plan(PROJECT, plan)
+        descriptions = ai_mod.describe_plan(plan, PROJECT)
+        _log_ai({"event": "propose", "provider": provider_name, "model": model,
+                 "command": command[:500], "operations": plan.get("operations", []),
+                 "valid": not errors, "errors": errors, "applied": False})
+        if errors:
+            PENDING_PLAN.update({"plan": None, "command": "",
+                                 "provider": "", "model": ""})
+            return self._send_json({"plan": plan, "descriptions": descriptions,
+                                    "valid": False, "errors": errors,
+                                    "applied": False})
+        if body.get("auto_apply"):
+            ai_mod.save_snapshot(PROJECT, PROJECT_DIR)
+            summary = ai_mod.apply_plan(PROJECT, plan)
+            save()
+            _log_ai({"event": "apply", "provider": provider_name, "model": model,
+                     "command": command[:500],
+                     "operations": plan.get("operations", []), "applied": True})
+            return self._send_json({"plan": plan, "descriptions": descriptions,
+                                    "valid": True, "applied": True,
+                                    "summary": summary, "project": PROJECT})
+        PENDING_PLAN.update({"plan": plan, "command": command,
+                             "provider": provider_name, "model": model})
+        return self._send_json({"plan": plan, "descriptions": descriptions,
+                                "valid": True, "applied": False})
+
+    def _ai_apply(self, body):
+        plan = body.get("plan") or PENDING_PLAN["plan"]
+        if not plan:
+            return self._send_error_json(
+                "Không có đề xuất nào đang chờ. Hỏi AI trước, rồi bấm Áp dụng.")
+        errors = ai_mod.validate_plan(PROJECT, plan)
+        if errors:
+            return self._send_error_json(
+                "Đề xuất không còn hợp lệ với timeline hiện tại: " + "; ".join(errors))
+        ai_mod.save_snapshot(PROJECT, PROJECT_DIR)
+        summary = ai_mod.apply_plan(PROJECT, plan)
+        save()
+        _log_ai({"event": "apply", "provider": PENDING_PLAN["provider"],
+                 "model": PENDING_PLAN["model"],
+                 "command": PENDING_PLAN["command"],
+                 "operations": plan.get("operations", []), "applied": True})
+        PENDING_PLAN.update({"plan": None, "command": "",
+                             "provider": "", "model": ""})
+        return self._send_json({"ok": True, "summary": summary,
+                                "project": PROJECT})
 
     def do_PATCH(self):
         m = re.match(r"^/api/clips/([^/]+)$", unquote(urlparse(self.path).path))

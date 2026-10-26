@@ -1,10 +1,11 @@
-# ADIT — Trình chỉnh sửa video kiểu CapCut (MVP, Giai đoạn 1)
+# ADIT — Trình chỉnh sửa video kiểu CapCut (Giai đoạn 1 + AI Giai đoạn 2)
 
 ADIT là một trình chỉnh sửa video chạy local, giao diện giống CapCut ở
 các tính năng cơ bản: thư viện media, xem trước, bảng thuộc tính và
-dải timeline ở phía dưới. **Bản này là MVP Giai đoạn 1: chỉ có chỉnh
-sửa thủ công. Chưa có AI.** Tab AI trong giao diện chỉ là một ghi chú
-"Giai đoạn 2", không gọi bất kỳ model nào, không dùng API key nào.
+dải timeline ở phía dưới. **Giai đoạn 1 là chỉnh sửa thủ công.
+Giai đoạn 2 đã làm xong: AI theo yêu cầu, sửa trực tiếp trên timeline
+khi bạn yêu cầu, kèm Quản lý model và Phiên âm local.** Chưa có
+hiệu ứng/transition cầu kỳ — phần đó người dùng đã dặn để sau.
 
 ## ADIT làm được gì (MVP)
 
@@ -29,6 +30,87 @@ sửa thủ công. Chưa có AI.** Tab AI trong giao diện chỉ là một ghi 
 - **Lưu/mở dự án:** dự án lưu thành `projects/default/project.json`,
   mở lại là xuất tiếp được từ đúng timeline đó.
 
+## AI — Ollama local miễn phí là mặc định
+
+ADIT **không đóng gói binary Ollama hay model vào repo** (quá nặng).
+Thay vào đó, app đi kèm script cài đặt:
+
+1. Chạy một lần trên Windows (PowerShell, trong thư mục ADIT):
+   `powershell -ExecutionPolicy Bypass -File scripts\setup_ollama_windows.ps1`
+   (hoặc bấm đúp `scripts\setup_ollama_windows.bat`).
+   Script kiểm tra đã có `ollama` chưa, nếu chưa thì cài bằng winget
+   khi có winget, nếu không có winget thì chỉ in hướng dẫn tải từ
+   https://ollama.com/download rồi dừng — không tự tải lén. Trước khi
+   tải model, script hỏi bạn xác nhận, vì model nặng khoảng 2 GB.
+2. Model mặc định: **qwen2.5:3b-instruct** (nhỏ, hợp máy yếu).
+   Sau khi tải xong, script kiểm tra bằng `ollama list` và một câu hỏi thử.
+3. Nếu Ollama chưa chạy nền, chạy thêm `ollama serve`, rồi mở ADIT.
+   Trong giao diện, dòng trạng thái AI sẽ báo "Ollama local đã sẵn sàng"
+   hay "chưa kết nối được" — bạn luôn biết AI miễn phí có dùng được không.
+   Không cần API key cho đường này.
+
+## AI — kết nối AI trả phí của riêng bạn để hiểu ý nhanh hơn
+
+Nếu muốn chất lượng hiểu ý tốt hơn, bạn tự kết nối AI trả phí của mình:
+trong bảng AI, chọn nhà cung cấp OpenAI tương thích hoặc Anthropic,
+nhập tên model, base URL (nếu khác mặc định) và API key — hoặc đặt biến
+môi trường `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` trước khi chạy server.
+Key chỉ dùng trong phiên làm việc đó, **không bao giờ được ghi vào file
+repo, project.json hay log** (log AI ở `projects/default/ai.log` đã lược
+key). **Mọi nhà cung cấp đều có cùng một bộ quyền**: AI chỉ được đề
+xuất các thao tác timeline trong danh sách cho phép (cắt, tách, xóa,
+di chuyển, sắp xếp lại, tốc độ, âm lượng, chữ, mờ dần, nhạc nền), mọi
+đề xuất đều qua kiểm chứng của server, và luôn hoàn tác được. Model
+trả phí thông minh hơn chỉ khác ở chỗ hiểu ý bạn nhanh hơn, ít hỏi lại
+hơn — không phải ở quyền được cấp.
+
+Cách dùng AI sửa timeline: chọn một clip trên timeline (không bắt buộc),
+gõ yêu cầu bằng tiếng Việt, bấm "Hỏi AI". AI trả về danh sách thao
+tác bằng tiếng Việt để bạn xem trước. Mặc định **không áp dụng gì cho
+tới khi bạn bấm "Áp dụng"**. Nếu bạn tick "Tự áp dụng ngay khi AI trả
+về" thì kế hoạch đã qua kiểm chứng sẽ áp dụng thẳng lên timeline —
+đó là cách "AI edit trực tiếp trên đó" hoạt động, và vẫn hoàn tác được
+bằng nút "Hoàn tác" (server lưu bản sao `project.json.bak` trước khi áp).
+Nếu AI lỗi (không có Ollama, thiếu key, model trả JSON sai), giao diện
+báo rõ lỗi, không bao giờ báo thành công giả hay áp dụng nửa vời:
+một kế hoạch có thao tác không hợp lệ sẽ bị từ chối toàn bộ.
+
+Về riêng tư: với Ollama local, mọi thứ ở lại trên máy bạn. Với API trả
+phí, chỉ bản tóm tắt timeline (không phải file media) và câu lệnh của
+bạn được gửi tới nhà cung cấp bạn đã chọn.
+
+## Quản lý model + Phiên âm local
+
+Bảng "Quản lý model AI + Phiên âm local" trong giao diện:
+
+- **Danh sách model:** model Ollama (qua API `/api/tags` khi Ollama chạy)
+  và model Whisper (chỉ các thư mục faster-whisper trong thư mục cache
+  Hugging Face; các model khác trong cùng cache, ví dụ voice Piper, sẽ
+  không hiện và không xóa được từ ADIT). Hiển thị tên, nguồn và dung
+  lượng khi có.
+- **Tải model:** Ollama qua `ollama pull <tên>` (tên chỉ nhận chữ, số,
+  chấm, gạch ngang, gạch dưới, gạch chéo và tag sau dấu hai chấm; tên lạ
+  bị từ chối), Whisper qua faster-whisper (chỉ các cỡ tiny/base/small/
+  medium/large-v3...). Thành công chỉ được báo sau khi kiểm chứng model
+  đã thực sự xuất hiện trong danh sách.
+- **Xóa model:** Ollama qua `ollama delete`, Whisper chỉ xóa thư mục
+  trong thư mục cache an toàn, cả hai đều cần tick ô xác nhận trong giao
+  diện và chỉ áp dụng cho model đã liệt kê. Xóa xong cũng kiểm chứng
+  model đã thực sự biến mất.
+- **Phiên âm local:** chọn một file video/nhạc trong dự án, chọn model
+  Whisper (mặc định tiny cho máy yếu), bấm "Phiên âm local". Phiên âm
+  chạy hoàn toàn local bằng faster-whisper sau khi đã tải model, không
+  cần mạng cho bước này, và lưu `projects/default/transcript.txt` +
+  `transcript.json` (kèm timestamp từng đoạn), không sửa file gốc.
+  Nếu chưa cài faster-whisper hoặc chưa tải model Whisper, giao diện báo
+  rõ bước tiếp theo (cài từ requirements-optional.txt rồi tải model),
+  không bao giờ tạo bản ghi giả.
+- **Trợ giúp từ bản ghi (kiểu CreatorUtils, tham khảo ý tưởng, không sao
+  chép app):** từ bản ghi đã có, dùng AI đã chọn (mặc định Ollama local)
+  để tạo chapter theo thời gian, tóm tắt video, và gợi ý tiêu đề / mô tả
+  / hashtag. Các trợ giúp này **chỉ tạo chữ gợi ý để bạn sao chép và sửa**,
+  không tự sửa timeline.
+
 ## ADIT chưa làm được (nói rõ để khỏi kỳ vọng quá)
 
 Đây là MVP, **không phải bản sao CapCut đầy đủ**: không có template,
@@ -37,8 +119,12 @@ không có transition ngoài hiệu ứng mờ dần, không có đồng bộ cl
 không có tài khoản. Clip video/ảnh/chữ trên cùng một track không được
 chồng lên nhau (clip nhạc thì được trộn nên có thể chồng). Chưa có
 xem trước trực tiếp trên timeline: trình phát sẽ phát bản xuất gần
-nhất. Bản MVP chạy dạng web local, **chưa đóng gói thành app desktop
-(Tauri/Electron)** — đó là việc của giai đoạn sau.
+nhất. Bản này chạy dạng web local, **chưa đóng gói thành app desktop
+(Tauri/Electron)** — đó là việc của giai đoạn sau. Hiệu ứng/transition
+cầu kỳ (xfade, blur/glow/glitch...) đã được người dùng dặn để sau, chưa
+làm trong bản này. Đường API trả phí thật (OpenAI/Anthropic) đã viết xong
+code nhưng **chưa được kiểm chứng với key thật** — kiểm chứng thật cần
+key của người dùng và chỉ nên làm trên máy của người dùng.
 
 ## Chạy trên Windows
 
@@ -68,7 +154,7 @@ Chạy trên Linux/macOS cũng tương tự, chỉ khác lệnh kích hoạt ven
 ## Chạy test
 
 ```bash
-python -m py_compile timeline.py media.py render.py server.py
+python -m py_compile timeline.py media.py render.py server.py ai_service.py model_service.py
 python -m unittest discover -s tests -v
 ```
 
@@ -80,12 +166,15 @@ FFprobe ở kích thước nháp nhỏ, không render 1080×1920 trong test.
 ```text
 server.py            # server HTTP chuẩn thư viện Python, API JSON + phục vụ UI
 timeline.py          # model timeline: thêm/sửa/xóa/tách/sắp xếp, kiểm chứng
+ai_service.py        # AI Giai đoạn 2: provider, kế hoạch, kiểm chứng, hoàn tác
+model_service.py     # Quản lý model Ollama/Whisper + phiên âm local
+scripts/             # setup_ollama_windows.ps1/.bat (cài Ollama, không đóng gói binary)
 media.py             # nhập media, thăm dò FFprobe, ảnh thu nhỏ
 render.py            # xuất video bằng FFmpeg (track chính, overlay, trộn nhạc)
 static/              # giao diện: xem trước trên, thuộc tính phải, timeline dưới
-tests/               # test model timeline + test render thật bằng FFmpeg
-projects/default/    # dự án đang mở: media/, project.json, output/
-PLAN.md              # lộ trình Giai đoạn 2 (AI) — chưa làm
+tests/               # test timeline + render thật + AI + model (đều dùng mock)
+projects/default/    # dự án đang mở: media/, project.json, output/, transcript.*
+PLAN.md              # lộ trình: Giai đoạn 2 đã làm (trừ kiểm chứng API trả phí thật)
 ```
 
 ## An toàn và bản quyền

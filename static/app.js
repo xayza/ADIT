@@ -1,4 +1,6 @@
-// ADIT MVP frontend — talks to the stdlib JSON API. No AI calls anywhere.
+// ADIT frontend — talks to the stdlib JSON API. The AI panel calls only
+// /api/ai/*; the AI itself never runs in this page, it only proposes a
+// plan that the server validates before anything changes.
 let project = null;
 let selectedId = null;
 let lastExport = null;
@@ -203,4 +205,160 @@ $("btnClearMusic").addEventListener("click", async () => {
   catch (e) { status(e.message); }
 });
 
+async function refreshAiStatus() {
+  try {
+    const data = await api("/api/ai/status", "GET");
+    if (data.ollama && data.ollama.reachable) {
+      $("aiStatusLine").textContent = `Ollama local đã sẵn sàng tại ${data.ollama.host} (model mặc định: ${data.ollama.default_model}). AI miễn phí, không cần key.`;
+    } else {
+      $("aiStatusLine").textContent = `Ollama local chưa kết nối được tại ${data.ollama ? data.ollama.host : "http://localhost:11434"}. Chạy script scripts/setup_ollama_windows.ps1 một lần, rồi chạy 'ollama serve' nếu cần — hoặc chọn AI trả phí bên dưới và nhập key của bạn.`;
+    }
+    $("btnAiUndo").disabled = !data.has_backup;
+  } catch (e) {
+    $("aiStatusLine").textContent = `Không kiểm tra được trạng thái AI: ${e.message}`;
+  }
+}
+
+function renderAiProposal(data) {
+  const list = $("aiProposal");
+  list.innerHTML = "";
+  (data.descriptions || []).forEach((line) => {
+    const li = document.createElement("li");
+    li.textContent = line;
+    list.appendChild(li);
+  });
+  if (data.valid === false && data.errors) {
+    $("aiMessage").textContent = "Đề xuất bị từ chối, không thay đổi gì: " + data.errors.join(" ");
+  } else if (data.applied) {
+    $("aiMessage").textContent = "Đã áp dụng trực tiếp lên timeline. Bấm Hoàn tác nếu muốn quay lại.";
+  } else if (data.valid) {
+    $("aiMessage").textContent = "AI đã đề xuất xong. Xem danh sách trên, rồi bấm Áp dụng nếu đồng ý.";
+  }
+}
+
+$("btnAiAsk").addEventListener("click", async () => {
+  const command = $("aiCommand").value.trim();
+  if (!command) { $("aiMessage").textContent = "Nhập yêu cầu cho AI trước."; return; }
+  $("aiMessage").textContent = "Đang hỏi AI, vui lòng chờ...";
+  try {
+    const data = await api("/api/ai/propose", "POST", {
+      provider: $("aiProvider").value,
+      model: $("aiModel").value.trim() || null,
+      host: $("aiEndpoint").value.trim() || null,
+      base_url: $("aiEndpoint").value.trim() || null,
+      api_key: $("aiApiKey").value || null,
+      command, selected_clip_id: selectedId,
+      auto_apply: $("aiAutoApply").checked,
+    });
+    renderAiProposal(data);
+    if (data.applied) await refresh();
+    await refreshAiStatus();
+  } catch (e) { $("aiMessage").textContent = e.message; }
+});
+
+$("btnAiApply").addEventListener("click", async () => {
+  try {
+    const data = await api("/api/ai/apply", "POST", {});
+    $("aiProposal").innerHTML = "";
+    $("aiMessage").textContent = "Đã áp dụng: " + (data.summary || []).join(" ");
+    await refresh();
+    await refreshAiStatus();
+  } catch (e) { $("aiMessage").textContent = e.message; }
+});
+
+$("btnAiCancel").addEventListener("click", async () => {
+  try { await api("/api/ai/cancel", "POST", {}); } catch (e) { /* ignore */ }
+  $("aiProposal").innerHTML = "";
+  $("aiMessage").textContent = "Đã hủy đề xuất, timeline không thay đổi.";
+});
+
+$("btnAiUndo").addEventListener("click", async () => {
+  try {
+    await api("/api/ai/undo", "POST", {});
+    $("aiProposal").innerHTML = "";
+    $("aiMessage").textContent = "Đã hoàn tác về trạng thái trước lần AI sửa gần nhất.";
+    await refresh();
+    await refreshAiStatus();
+  } catch (e) { $("aiMessage").textContent = e.message; }
+});
+
+async function refreshModels() {
+  try {
+    const data = await api("/api/models", "GET");
+    const list = $("modelList");
+    list.innerHTML = "";
+    const addRow = (m) => {
+      const div = document.createElement("div");
+      div.className = "mediaItem";
+      const size = m.size ? ` • ${(m.size / 1048576).toFixed(0)} MB` : "";
+      div.innerHTML = `<div><div class="name">${m.source}: ${m.name}</div><div class="meta">${size}</div></div>`;
+      const del = document.createElement("button");
+      del.textContent = "Xóa";
+      del.onclick = async () => {
+        if (!$("chkConfirmDeleteModel").checked) { $("modelMessage").textContent = "Tick ô xác nhận xóa model trước khi xóa."; return; }
+        try {
+          const path = m.source === "ollama" ? "/api/models/ollama/delete" : "/api/models/whisper/delete";
+          await api(path, "POST", { name: m.name, confirm: true });
+          $("modelMessage").textContent = `Đã xóa model ${m.name}.`;
+          await refreshModels();
+        } catch (e) { $("modelMessage").textContent = e.message; }
+      };
+      div.appendChild(del);
+      list.appendChild(div);
+    };
+    (data.ollama.models || []).forEach(addRow);
+    (data.whisper.models || []).forEach(addRow);
+    if (data.ollama.error) $("modelMessage").textContent = data.ollama.error;
+    if (!data.whisper.faster_whisper_available) $("modelMessage").textContent = "Chưa cài faster-whisper: chạy pip install faster-whisper (xem requirements-optional.txt) rồi tải model Whisper.";
+    if (!$("modelList").children.length && !data.ollama.error) $("modelMessage").textContent = "Chưa có model nào được liệt kê.";
+  } catch (e) { $("modelMessage").textContent = e.message; }
+}
+
+$("btnRefreshModels").addEventListener("click", refreshModels);
+
+$("btnPullOllama").addEventListener("click", async () => {
+  const name = $("ollamaModelName").value.trim();
+  if (!name) { $("modelMessage").textContent = "Nhập tên model Ollama trước."; return; }
+  $("modelMessage").textContent = "Đang tải model Ollama, có thể mất vài phút...";
+  try { await api("/api/models/ollama/pull", "POST", { name }); $("modelMessage").textContent = `Đã tải model Ollama ${name}.`; await refreshModels(); }
+  catch (e) { $("modelMessage").textContent = e.message; }
+});
+
+$("btnDownloadWhisper").addEventListener("click", async () => {
+  $("modelMessage").textContent = "Đang tải model Whisper, có thể mất vài phút...";
+  try { await api("/api/models/whisper/download", "POST", { model: $("whisperModelName").value }); $("modelMessage").textContent = "Đã tải model Whisper."; await refreshModels(); }
+  catch (e) { $("modelMessage").textContent = e.message; }
+});
+
+$("btnTranscribe").addEventListener("click", async () => {
+  const source = $("transcribeSource").value.trim();
+  if (!source) { $("modelMessage").textContent = "Nhập tên file media trong dự án trước."; return; }
+  $("modelMessage").textContent = "Đang phiên âm local, vui lòng chờ...";
+  try {
+    const data = await api("/api/transcribe", "POST", { source, model: $("transcribeModel").value });
+    $("transcriptText").value = data.text || "";
+    $("modelMessage").textContent = `Phiên âm xong: ${data.segments.length} đoạn, đã lưu transcript.txt / transcript.json.`;
+  } catch (e) { $("modelMessage").textContent = e.message; }
+});
+
+async function runHelper(helper) {
+  $("modelMessage").textContent = "Đang tạo gợi ý từ bản ghi...";
+  try {
+    const data = await api("/api/ai/helpers", "POST", {
+      helper, provider: $("aiProvider").value,
+      model: $("aiModel").value.trim() || null,
+      host: $("aiEndpoint").value.trim() || null,
+      base_url: $("aiEndpoint").value.trim() || null,
+      api_key: $("aiApiKey").value || null,
+    });
+    $("helperText").value = data.result || "";
+    $("modelMessage").textContent = data.truncated ? "Đã tạo gợi ý (bản ghi dài nên chỉ dùng 12.000 ký tự đầu)." : "Đã tạo gợi ý.";
+  } catch (e) { $("modelMessage").textContent = e.message; }
+}
+$("btnChapters").addEventListener("click", () => runHelper("chapters"));
+$("btnSummary").addEventListener("click", () => runHelper("summary"));
+$("btnMetadata").addEventListener("click", () => runHelper("metadata"));
+
 refresh().catch((e) => status(e.message));
+refreshAiStatus();
+refreshModels();

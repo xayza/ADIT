@@ -1,0 +1,5 @@
+# ADIT — optional dependencies (not needed for the editor itself).
+# faster-whisper is only needed for local transcription (Model Manager).
+# Install only if you want transcription:
+#   pip install faster-whisper
+faster-whisper

@@ -31,4 +31,6 @@ main { display:grid; grid-template-columns:240px 1fr 300px; gap:10px; padding:10
 .clipBlock.selected { outline:2px solid var(--accent); background:#6b3b4a; }
 #status { color:var(--accent2); font-size:13px; min-height:18px; }
 .aiPlaceholder { border:1px dashed var(--border); border-radius:10px; padding:14px; color:var(--muted); }
+.aiPanel { border:1px solid var(--border); border-radius:10px; padding:14px; }
+.aiPanel p { color:var(--muted); }
 @media (max-width:900px) { main { grid-template-columns:1fr; } }
