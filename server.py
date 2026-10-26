@@ -14,16 +14,28 @@ except reading the uploaded file the user chose.
 """
 
 import argparse
+import errno
 import json
 import mimetypes
 import re
+import shutil
+import socket
 import sys
+import threading
 import traceback
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-ROOT = Path(__file__).resolve().parent
+# Frozen (PyInstaller) apps have no usable __file__ for the entry script:
+# the exe lives next to static/ and projects/ in the output folder, so
+# use the exe directory as ROOT there. In normal runs ROOT is this file's
+# directory, unchanged.
+if getattr(sys, "frozen", False):
+    ROOT = Path(sys.executable).resolve().parent
+else:
+    ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 import ai_service as ai_mod
@@ -504,21 +516,68 @@ def _do_get_with_output(self):
 Handler.do_GET = _do_get_with_output
 
 
+def open_browser_when_ready(host, port, timeout_seconds=30):
+    """Poll until the server answers, then open it in the browser.
+
+    Used only with --open-browser. Polling (not a fixed sleep) is what
+    guarantees the browser does not open before the server is ready.
+    """
+    connect_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+    url = f"http://{connect_host}:{port}/"
+    for _ in range(max(1, int(timeout_seconds * 2))):
+        try:
+            with socket.create_connection((connect_host, port), timeout=0.5):
+                break
+        except OSError:
+            import time
+            time.sleep(0.5)
+    else:
+        return False
+    return bool(webbrowser.open(url))
+
+
 def main():
     parser = argparse.ArgumentParser(description="ADIT MVP editor server")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--open-browser", action="store_true",
+        help="Mo trinh duyet khi server da san sang (launcher dung cach nay "
+             "thay cho viec tu mo trinh duyet; mac dinh khong tu mo).")
     args = parser.parse_args()
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"ADIT MVP running at http://{args.host}:{args.port}/")
-    print(f"Project folder: {PROJECT_DIR}")
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
+    except OSError as exc:
+        if exc.errno in (errno.EADDRINUSE, 98, 10048):
+            print(
+                f"LỖI: Cổng {args.port} đã được dùng — có thể ADIT đã đang "
+                f"chạy rồi. Hãy mở http://127.0.0.1:{args.port}/ để dùng, "
+                "hoặc dừng app cũ (bấm Ctrl+C trong cửa sổ cũ, hoặc đóng "
+                "cửa sổ đó) rồi chạy lại.", file=sys.stderr)
+            sys.exit(1)
+        raise
+    if shutil.which("ffmpeg") is None and not (
+            (ROOT / "ffmpeg.exe").exists() or (ROOT / "ffmpeg").exists()):
+        print("CẢNH BÁO: Không tìm thấy FFmpeg. Bạn vẫn mở và chỉnh sửa "
+              "được, nhưng xuất video sẽ lỗi cho tới khi cài FFmpeg và "
+              "thêm vào PATH (hoặc đặt ffmpeg.exe cạnh file chạy ADIT).")
+    print(f"ADIT đang chạy tại http://{args.host}:{args.port}/", flush=True)
+    print(f"Thư mục dự án: {PROJECT_DIR}", flush=True)
+    print("Server đang chạy — đừng đóng cửa sổ này.", flush=True)
+    print("Để dừng: bấm Ctrl+C trong cửa sổ này (hoặc đóng cửa sổ).", flush=True)
+    if args.open_browser:
+        threading.Thread(
+            target=open_browser_when_ready,
+            args=(args.host, args.port), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        print("\nĐã dừng ADIT. Hẹn gặp lại!")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 .venv/
+# PyInstaller build outputs (adit.spec itself IS committed).
+dist/
+build/
 projects/default/media/
 projects/default/thumbs/
 projects/default/output/

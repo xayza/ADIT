@@ -157,14 +157,49 @@ không có tài khoản. Clip video/ảnh/chữ trên cùng một track không �
 chồng lên nhau (clip nhạc thì được trộn nên có thể chồng). Chưa có
 render timeline trực tiếp bằng GPU: trình phát phát bản xuất gần nhất,
 còn khi bấm thước thời gian thì chỉ hiện khung hình đại diện của clip
-tại vị trí đó (xem mục "Thao tác mượt" ở trên). Bản này chạy dạng web local, **chưa đóng gói thành app desktop
-(Tauri/Electron)** — đó là việc của giai đoạn sau. Hiệu ứng/transition
+tại vị trí đó (xem mục "Thao tác mượt" ở trên). Hiệu ứng/transition
 cầu kỳ (xfade, blur/glow/glitch...) đã được người dùng dặn để sau, chưa
 làm trong bản này. Đường API trả phí thật (OpenAI/Anthropic) đã viết xong
 code nhưng **chưa được kiểm chứng với key thật** — kiểm chứng thật cần
 key của người dùng và chỉ nên làm trên máy của người dùng.
 
-## Chạy trên Windows
+## Chạy như app (Windows, không cần gõ lệnh dài)
+
+Yêu cầu chung: Python 3.10 trở lên, FFmpeg đã thêm vào PATH (kiểm tra
+bằng `ffmpeg -version` trong PowerShell). Có 3 cách chạy, từ nhanh
+nhất tới đóng gói hẳn:
+
+**(a) Cách nhanh nhất — bấm đúp launcher (khuyên dùng):**
+Trong thư mục ADIT, bấm đúp `scripts\run_adit.bat` (hoặc chuột phải
+`scripts\run_adit.ps1` rồi chọn "Run with PowerShell"). Launcher sẽ
+kiểm tra Python, Pillow và FFmpeg rồi báo rõ bằng tiếng Việt nếu thiếu
+cái gì, dùng `.venv` nếu đã có, khởi động server trong một cửa sổ
+riêng, **chờ tới khi server trả lời ở http://127.0.0.1:8000 rồi mới
+mở trình duyệt** (không đoán thời gian chờ), và giữ cửa sổ mở để bạn
+biết app đang chạy. Để dừng: đóng cửa sổ server hoặc bấm Ctrl+C trong
+đó. Cửa sổ server giữ dấu nhắc lệnh trong lúc chạy là **bình thường**,
+không phải treo máy — đó chính là server đang chờ bạn dùng app.
+
+**(b) Cách đóng gói — file .exe (build trên Windows):**
+Chạy `scripts\build_windows.bat` một lần trên máy Windows (script tự
+tạo `.venv`, cài requirements + pyinstaller, rồi chạy
+`pyinstaller --clean --noconfirm adit.spec`). Kết quả là
+`dist\ADIT\ADIT.exe` — bấm đúp file này để chạy mà **không cần cài
+Python nữa**. Lưu ý: file .exe này **không thể build trên máy Linux**,
+phải build trên Windows, và repo **không kèm sẵn file .exe đã build**
+(bạn tự build bằng script trên). FFmpeg vẫn cần: hoặc đã có trong
+PATH, hoặc đặt `ffmpeg.exe` ngay cạnh `ADIT.exe` trong `dist\ADIT\`.
+Đóng gói dạng Tauri/Electron là một lựa chọn riêng ở giai đoạn sau,
+chưa làm trong bản này.
+
+**(c) Cách cũ — vẫn chạy được:**
+`python server.py` (thêm cờ `--open-browser` nếu muốn server tự mở
+trình duyệt khi đã sẵn sàng; mặc định không tự mở để chạy headless
+và test không bị ảnh hưởng). Nếu cổng 8000 đã được dùng, server báo
+rõ bằng tiếng Việt là có thể app đã đang chạy, kèm cách dừng app cũ.
+Bấm Ctrl+C để dừng thì server in lời chào tạm biệt và đóng sạch.
+
+## Chạy trên Windows (cách thủ công, tương đương launcher)
 
 Yêu cầu: Python 3.10 trở lên, FFmpeg đã thêm vào PATH (kiểm tra bằng
 `ffmpeg -version` trong PowerShell).
@@ -203,10 +238,13 @@ FFprobe ở kích thước nháp nhỏ, không render 1080×1920 trong test.
 
 ```text
 server.py            # server HTTP chuẩn thư viện Python, API JSON + phục vụ UI
+                       # (cờ --open-browser, báo cổng đã dùng, tắt sạch bằng Ctrl+C)
 timeline.py          # model timeline: thêm/sửa/xóa/tách/sắp xếp, kiểm chứng
 ai_service.py        # AI Giai đoạn 2: provider, kế hoạch, kiểm chứng, hoàn tác
 model_service.py     # Quản lý model Ollama/Whisper + phiên âm local
+adit.spec            # PyInstaller spec (one-folder) — build trên Windows, xem dưới
 scripts/             # setup_ollama_windows.ps1/.bat (cài Ollama, không đóng gói binary)
+                       # run_adit.bat/.ps1 (launcher bấm đúp), build_windows.bat (build .exe)
 media.py             # nhập media, thăm dò FFprobe, ảnh thu nhỏ
 render.py            # xuất video bằng FFmpeg (track chính, overlay, trộn nhạc)
 static/              # giao diện: xem trước trên, thuộc tính phải, timeline dưới

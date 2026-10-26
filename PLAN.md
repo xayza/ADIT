@@ -54,8 +54,30 @@ chưa đóng gói desktop.
   Các tính năng cần model AI (retouch face, giọng rõ hơn bằng AI,
   video nét hơn bằng AI, gợi ý thông minh, AI clipper) vẫn chưa có
   và chỉ được ghi chú là giai đoạn sau.
-- Chưa làm: transition/ hiệu ứng cầu kỳ (đã dặn hoãn), đóng gói
-  desktop, render timeline trực tiếp bằng GPU.
+- Chưa làm: transition/ hiệu ứng cầu kỳ (đã dặn hoãn), render
+  timeline trực tiếp bằng GPU.
+
+## Chạy như app Windows (ĐÃ LÀM, trừ kiểm chứng trên Windows thật)
+
+- Launcher bấm đúp: `scripts/run_adit.bat` và `scripts/run_adit.ps1`
+  kiểm tra Python / Pillow / FFmpeg, dùng `.venv` nếu có, khởi động
+  server trong cửa sổ riêng, chờ server trả lời rồi mới mở trình
+  duyệt, và giữ cửa sổ mở — không còn cảm giác "đơ" vì server giữ
+  dấu nhắc lệnh (đó là hành vi bình thường, README giải thích rõ).
+- Server: cờ `--open-browser`, thông báo tiếng Việt khi cổng đã được
+  dùng, cảnh báo khi thiếu FFmpeg, tắt sạch bằng Ctrl+C. Khi chạy
+  đóng gói (sys.frozen), server dùng thư mục chứa file .exe làm gốc
+  để tìm static/ và projects/.
+- Đóng gói PyInstaller: `adit.spec` (one-folder, gồm static/ và
+  scripts/ làm data, không gồm test hay nội dung projects/) và
+  `scripts/build_windows.bat` (tạo .venv, cài pyinstaller, build ra
+  `dist/ADIT/ADIT.exe`, không cần Python để chạy exe). FFmpeg vẫn
+  cần (PATH hoặc ffmpeg.exe cạnh exe). File .exe **không thể build
+  trên máy Linux** và repo không kèm file .exe đã build — phải build
+  trên Windows. Chưa kiểm chứng: launcher và file .exe chưa được chạy
+  thử trên Windows thật; người dùng cần kiểm tra: bấm đúp run_adit.bat
+  → trình duyệt mở → editor tải được → dừng bằng cách đóng cửa sổ.
+- Chưa làm: đóng gói Tauri/Electron (lựa chọn riêng ở giai đoạn sau).
 
 ## Giai đoạn sau nữa (chưa chốt)
 
